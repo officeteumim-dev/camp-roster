@@ -1,0 +1,19 @@
+# Supabase CLI settings (used by the deploy workflow). Each function checks who is calling it itself
+# (family link, import key, signed SFSP message or staff sign-in), so the gateway's JWT check is off.
+project_id = "camp-roster"
+
+[functions.import-campflow]
+verify_jwt = false
+entrypoint = "./functions/import-campflow/index.js"
+
+[functions.portal]
+verify_jwt = false
+entrypoint = "./functions/portal/index.js"
+
+[functions.sfsp]
+verify_jwt = false
+entrypoint = "./functions/sfsp/index.js"
+
+[functions.notify]
+verify_jwt = false
+entrypoint = "./functions/notify/index.js"

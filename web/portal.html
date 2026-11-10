@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>Camp forms</title>
+<link rel="stylesheet" href="/styles.css">
+<style>
+  body { background: var(--bg-soft); }
+  main { max-width: 680px; margin: 0 auto; padding: 20px 16px 64px; }
+  .hello h1 { margin: 6px 0 4px; }
+  .progress { height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; margin: 14px 0 6px; }
+  .progress > i { display: block; height: 100%; background: var(--good); width: 0; transition: width .4s; }
+  .camper { margin-top: 26px; }
+  .camper h2 { margin: 0 0 8px; }
+  .req { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; margin: 10px 0; }
+  .req > button.head { all: unset; box-sizing: border-box; width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px 16px; cursor: pointer; }
+  .req > button.head:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 12px; }
+  .req .title { flex: 1; font-weight: 600; }
+  .req .sub { display: block; font-weight: 400; color: var(--muted); font-size: 14px; margin-top: 2px; }
+  .req .body { padding: 0 16px 16px; display: none; }
+  .req.open .body { display: block; }
+  .req.done .title { color: var(--muted); }
+  .files { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+  .files .f { font-size: 13px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-soft); display: flex; gap: 6px; align-items: center; }
+  .files .f button { all: unset; cursor: pointer; color: var(--muted); padding: 0 2px; }
+  .reason { background: var(--bad-soft); color: var(--bad-ink); padding: 10px 12px; border-radius: 8px; margin-bottom: 12px; font-size: 15px; }
+  .choice { display: flex; gap: 10px; margin: 10px 0 14px; }
+  .choice label { flex: 1; border: 1px solid var(--line-strong); border-radius: 10px; padding: 12px; text-align: center; cursor: pointer; font-weight: 600; }
+  .choice input { position: absolute; opacity: 0; pointer-events: none; }
+  .choice input:checked + span { color: var(--accent-ink); }
+  .choice label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+  .choice label:has(input:focus-visible) { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .consent-text { background: var(--bg-soft); padding: 12px; border-radius: 8px; font-size: 15px; }
+  .alldone { text-align: center; padding: 28px 16px; background: var(--good-soft); border-radius: 12px; margin-top: 20px; }
+</style>
+</head>
+<body>
+<main id="app" aria-live="polite">
+  <p class="muted">Loading your forms…</p>
+</main>
+<script src="/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
+<script src="/portal.js"></script>
+</body>
+</html>

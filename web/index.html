@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Camp roster</title>
+<link rel="stylesheet" href="/styles.css">
+<style>
+  body { background: var(--bg-soft); }
+  header.top { background: var(--bg); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+  header.top .in { max-width: 1280px; margin: 0 auto; padding: 8px 16px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  header.top .brand { font-weight: 700; }
+  nav.tabs { display: flex; gap: 2px; flex-wrap: wrap; flex: 1; }
+  nav.tabs a { text-decoration: none; color: var(--muted); padding: 8px 12px; border-radius: 8px; font-weight: 600; font-size: 15px; }
+  nav.tabs a.on { color: var(--accent-ink); background: var(--accent-soft); }
+  .who { font-size: 14px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+  .who select { width: auto; padding: 4px 8px; }
+  main { max-width: 1280px; margin: 0 auto; padding: 20px 16px 64px; }
+  .card { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
+  .tile { all: unset; box-sizing: border-box; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; cursor: pointer; }
+  .tile:focus-visible { outline: 3px solid var(--accent); }
+  .tile.on { border-color: var(--accent); background: var(--accent-soft); }
+  .tile b { display: block; font-size: 26px; line-height: 1.1; }
+  .tile span { font-size: 14px; color: var(--muted); }
+  .filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; margin-bottom: 12px; }
+  .filters label { font-size: 13px; font-weight: 600; color: var(--muted); }
+  .filters label > * { display: block; margin-top: 2px; min-width: 160px; }
+  table.grid { width: 100%; border-collapse: collapse; background: var(--bg); font-size: 15px; }
+  table.grid th { text-align: left; font-size: 13px; color: var(--muted); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--line-strong); background: var(--bg); }
+  table.grid td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.grid tr.click { cursor: pointer; }
+  table.grid tr.click:hover td { background: var(--bg-soft); }
+  .wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 860px) { .two { grid-template-columns: 1fr; } }
+  .sub { border-top: 1px solid var(--line); padding: 10px 0; }
+  .sub:first-child { border-top: 0; }
+  dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; font-size: 15px; }
+  dl.kv dt { color: var(--muted); }
+  dl.kv dd { margin: 0; }
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 10px 16px; border-radius: 10px; z-index: 20; }
+  .signin { max-width: 420px; margin: 10vh auto; }
+  .bunkcols { display: grid; grid-template-columns: 260px 1fr; gap: 16px; }
+  @media (max-width: 760px) { .bunkcols { grid-template-columns: 1fr; } }
+  .list button.item { all: unset; box-sizing: border-box; display: flex; justify-content: space-between; width: 100%; padding: 9px 12px; border-radius: 8px; cursor: pointer; }
+  .list button.item.on { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+  .list button.item:focus-visible { outline: 3px solid var(--accent); }
+  @media print { header.top, .noprint { display: none !important; } body, .card { background: #fff; border: 0; } }
+</style>
+</head>
+<body>
+<header class="top" id="top" hidden></header>
+<main id="main"><p class="muted">Loading…</p></main>
+<script src="/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

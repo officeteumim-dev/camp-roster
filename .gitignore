@@ -1,0 +1,6 @@
+node_modules/
+tests/browser/out/
+*.local
+.env
+.DS_Store
+supabase/.temp/

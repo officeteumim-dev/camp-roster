@@ -1,0 +1,47 @@
+# Tests on every push; on main, also updates the Supabase database and server functions.
+# Netlify publishes the website (web/) by itself from main.
+name: Test and deploy
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: Unit tests
+        run: node --test tests/*.test.mjs
+      - name: Database tests (local Postgres)
+        run: |
+          sudo apt-get -qq install -y postgresql >/dev/null
+          bash tests/db/run.sh
+
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with: { version: latest }
+      - name: Link project
+        run: supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+      - name: Update database
+        run: supabase db push --password "$SUPABASE_DB_PASSWORD"
+      - name: Server settings
+        run: |
+          supabase secrets set --project-ref "$PROJECT_REF" \
+            IMPORT_KEY='${{ secrets.IMPORT_KEY }}' CRON_KEY='${{ secrets.CRON_KEY }}' \
+            RESEND_API_KEY='${{ secrets.RESEND_API_KEY }}' MAIL_FROM='${{ vars.MAIL_FROM }}' \
+            APP_URL='${{ vars.APP_URL }}' APP_ORIGIN='${{ vars.APP_URL }}'
+      - name: Deploy server functions
+        run: supabase functions deploy --project-ref "$PROJECT_REF"
