@@ -12,7 +12,7 @@ create extension if not exists pg_net;
 select vault.create_secret('<CRON_KEY>', 'cron_key');
 select cron.schedule('daily-family-emails', '5 14 * * *', $$
   select net.http_post(
-    url := 'https://<PROJECT_REF>.supabase.co/functions/v1/notify',
+    url := 'https://luyoctmorgmaupuqoiqa.supabase.co/functions/v1/notify',
     headers := jsonb_build_object('Content-Type', 'application/json',
       'x-cron-key', (select decrypted_secret from vault.decrypted_secrets where name = 'cron_key')),
     body := '{"action":"daily"}'::jsonb)
