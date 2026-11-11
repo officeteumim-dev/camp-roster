@@ -36,7 +36,7 @@ jobs:
       - name: Link project
         run: supabase link --project-ref "$PROJECT_REF"
       - name: Update database
-        run: supabase db push --password "$SUPABASE_DB_PASSWORD"
+        run: supabase db push --remote --password "$SUPABASE_DB_PASSWORD"
       - name: Server settings
         run: |
           supabase secrets set --project-ref "$PROJECT_REF" \
