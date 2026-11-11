@@ -39,9 +39,9 @@ jobs:
         run: supabase db push --remote --yes --password "$SUPABASE_DB_PASSWORD"
       - name: Server settings
         run: |
-          supabase secrets set --project-ref "$PROJECT_REF" \
+          supabase secrets set --yes --project-ref "$PROJECT_REF" \
             IMPORT_KEY='${{ secrets.IMPORT_KEY }}' CRON_KEY='${{ secrets.CRON_KEY }}' \
             RESEND_API_KEY='${{ secrets.RESEND_API_KEY }}' MAIL_FROM='${{ vars.MAIL_FROM }}' \
             APP_URL='${{ vars.APP_URL }}' APP_ORIGIN='${{ vars.APP_URL }}'
       - name: Deploy server functions
-        run: supabase functions deploy --project-ref "$PROJECT_REF"
+        run: supabase functions deploy --yes --project-ref "$PROJECT_REF"

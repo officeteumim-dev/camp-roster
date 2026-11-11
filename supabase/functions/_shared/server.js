@@ -4,7 +4,9 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 export const env = k => Deno.env.get(k) ?? '';
 export const admin = () => createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'), { auth: { persistSession: false } });
 
-const allowedOrigin = () => env('APP_ORIGIN') || '*';
+// Accepts "roster.wgcamps.com" or "https://roster.wgcamps.com/".
+export const withScheme = u => { u = String(u || '').trim().replace(/\/+$/, ''); return u && !/^https?:\/\//i.test(u) ? 'https://' + u : u; };
+const allowedOrigin = () => withScheme(env('APP_ORIGIN')) || '*';
 export const cors = { 'Access-Control-Allow-Origin': allowedOrigin(), 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-import-key, x-wg-signature, x-wg-timestamp', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
 export const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
 export const fail = (message, status = 400) => json({ error: message }, status);

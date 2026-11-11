@@ -1,7 +1,10 @@
 // Family links (portal) and SFSP links, used by emails and by the staff app's "copy family link".
 import { newToken, sha256Hex, sfspRef } from './crypto.js';
 
-export function appUrl() { return (Deno.env.get('APP_URL') || 'https://roster.wgcamps.com').replace(/\/+$/, ''); }
+export function appUrl() {
+  const u = String(Deno.env.get('APP_URL') || 'https://roster.wgcamps.com').trim().replace(/\/+$/, '');
+  return /^https?:\/\//i.test(u) ? u : 'https://' + u;
+}
 
 // Links work until the end of September after the forms deadline (or after this summer, if no deadline is set).
 export function linkExpiry(camp, now = new Date()) {
