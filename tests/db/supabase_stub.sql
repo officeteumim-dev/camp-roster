@@ -9,5 +9,4 @@ create function auth.jwt() returns jsonb language sql stable as $$
 $$;
 create function auth.uid() returns uuid language sql stable as $$ select (auth.jwt() ->> 'sub')::uuid $$;
 grant usage on schema public to anon, authenticated, service_role;
-alter default privileges in schema public grant all on tables to service_role;
-alter default privileges in schema public grant all on sequences to service_role;
+-- Like newer Supabase projects: no automatic table access for service_role; the migrations must grant it.

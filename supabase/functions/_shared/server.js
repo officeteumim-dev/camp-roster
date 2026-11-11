@@ -24,7 +24,8 @@ export async function staffFor(req, db, campId) {
 
 export async function campBySlugOrId(db, v) {
   const q = db.from('camps').select('*');
-  const { data } = /^[0-9a-f-]{36}$/.test(v || '') ? await q.eq('id', v).maybeSingle() : await q.eq('slug', v || '').maybeSingle();
+  const { data, error } = /^[0-9a-f-]{36}$/.test(v || '') ? await q.eq('id', v).maybeSingle() : await q.eq('slug', v || '').maybeSingle();
+  if (error) throw new Error('Database: ' + error.message);
   return data;
 }
 
