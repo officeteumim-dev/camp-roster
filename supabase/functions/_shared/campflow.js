@@ -130,6 +130,10 @@ export function parseCampers(rows) {
       grade: orNull(col(r, 'Grade', 'Grade in fall', 'Current grade')),
       sessions: splitList(col(r, 'Sessions', 'Session', 'Programs', 'Program', 'Registered sessions')),
       bunk: orNull(col(r, 'Bunk', 'Cabin', 'Group')),
+      legal_first: orNull(col(r, 'Legal first name', 'Legal first')),
+      legal_last: orNull(col(r, 'Legal last name', 'Legal last')),
+      hebrew_name: orNull(col(r, 'Hebrew name', 'Hebrew')),
+      staff_child: f('Staff child', 'Staff kid', 'Staff') >= 0 ? /^(y|yes|true|1|x)$/i.test(col(r, 'Staff child', 'Staff kid', 'Staff')) : null,
     });
   });
   return { campers: out, problems };
@@ -207,6 +211,8 @@ export function planCampers(parsed, familyIdByExt, existingCampers) {
     let hit = p.external_id && byExt.get(p.external_id);
     if (!hit) hit = existingCampers.find(c => c.family_id === fid && !used.has(c.id) && norm(c.first_name) === norm(p.first_name) && (!c.external_id || c.external_id === p.external_id));
     const rec = { family_id: fid, external_id: p.external_id, first_name: p.first_name, last_name: p.last_name, date_of_birth: p.date_of_birth, gender: p.gender, grade: p.grade, derived: false };
+    // Legal and Hebrew names and the staff-child flag only overwrite what's on file when the report has them.
+    for (const k of ['legal_first', 'legal_last', 'hebrew_name', 'staff_child']) if (p[k] != null) rec[k] = p[k];
     if (hit) { used.add(hit.id); update.push({ id: hit.id, ...rec, sessions: p.sessions, bunk: p.bunk }); }
     else insert.push({ ...rec, sessions: p.sessions, bunk: p.bunk });
   }

@@ -32,9 +32,11 @@ Variables: `APP_URL` (the Netlify address, e.g. `https://roster.wgcamps.com`), `
 - [ ] In Camp Flow, switch the "All" families report to **daily**, and create a **campers** report (camper link, family link, first and last name, date of birth, gender, grade, sessions, bunk) and, if available, a **transactions** report; schedule both daily to the office Gmail.
 - [ ] Set up `apps-script/CampflowImport.gs` (steps at the top of the file).
 
-### 7. SFSP app
-- [ ] Paste `docs/sfsp-integration-brief.md` into the SFSP app's Claude session.
-- [ ] When it's built: create the secret in the SFSP app's Settings, then paste the SFSP camp ID, form address and secret into this app's Settings → SFSP app connection.
+### 7. SFSP app (connection spec v1: `docs/sfsp-connection-spec-v1.md`, which replaces the earlier brief)
+- [x] Roster side built (November 12): personal links with expiry, pre-fill address, "handed in" messages and nightly snapshot, roster sync with signed answers, age rule, legal and Hebrew names, secret kept in Supabase Vault. Tested with the spec's test vectors.
+- [ ] In this app's Settings → Sessions: enter each session's start and end dates (needed for the age rule and the SFSP roster).
+- [ ] In the SFSP app's Settings → Roster app connection: enter the two addresses shown in this app's Settings → SFSP app connection; copy the secret it shows.
+- [ ] In this app's Settings → SFSP app connection: paste the SFSP camp ID and the secret, then press "Send test" in the SFSP app.
 
 ### 8. Before turning emails on
 - [ ] Settings → set the forms deadline (currently June 4, 2027 as a placeholder), reply-to address and phone.

@@ -29,9 +29,9 @@ families_report(os.path.join(here, 'families.xlsx'), families)
 families_report(os.path.join(here, 'families_small.xlsx'), families[:1])
 
 wb = Workbook(); ws = wb.active; ws.title = 'Campers'
-ws.append(['Camper Link', 'Family Link', 'First name', 'Last name', 'Date of birth', 'Gender', 'Grade', 'Sessions', 'Bunk'])
-ws.append(['https://app.campflow.org/campers/501', 'https://app.campflow.org/families/10001', 'Yosef', 'Levi', '03/14/2013', 'Male', '8th', 'First Half, Second Half', ''])
-ws.append(['https://app.campflow.org/campers/502', 'https://app.campflow.org/families/10001', 'Chaim', 'Levi', '2015-07-02', 'Male', '6th', 'Second Half', ''])
+ws.append(['Camper Link', 'Family Link', 'First name', 'Last name', 'Date of birth', 'Gender', 'Grade', 'Sessions', 'Bunk', 'Legal first name', 'Hebrew name', 'Staff child'])
+ws.append(['https://app.campflow.org/campers/501', 'https://app.campflow.org/families/10001', 'Yosef', 'Levi', '03/14/2013', 'Male', '8th', 'First Half, Second Half', '', 'Joseph', 'Yosef', 'No'])
+ws.append(['https://app.campflow.org/campers/502', 'https://app.campflow.org/families/10001', 'Chaim', 'Levi', '2015-07-02', 'Male', '6th', 'Second Half', '', '', 'Chaim', 'Yes'])
 ws.append(['https://app.campflow.org/campers/503', 'https://app.campflow.org/families/10002', 'Shmuel', 'Cohen', 41700, 'Male', '7th', 'First Half', 'Bunk 3'])
 ws.append(['https://app.campflow.org/campers/504', 'https://app.campflow.org/families/99999', 'Nobody', 'Unknown', '', '', '', '', ''])
 wb.save(os.path.join(here, 'campers.xlsx'))

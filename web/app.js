@@ -270,6 +270,12 @@
     html += '<div class="card"><h3 style="margin-top:0">Alert for counselors</h3><p class="small muted">Counselors and head counselors see only this line, not the forms.</p>' +
       (has('director', 'infirmary') ? '<textarea id="alert" aria-label="Alert for counselors">' + esc(health && health.alert || '') + '</textarea><div class="row" style="margin-top:6px"><button id="savealert">Save alert</button>' + (health && health.updated_by ? '<span class="small muted">Last changed by ' + esc(health.updated_by) + ' ' + esc(when(health.updated_at)) + '</span>' : '') + '</div>'
         : '<p>' + esc(health && health.alert || 'None') + '</p>') + '</div>';
+    // Names for the SFSP form
+    var canName = has('director', 'office');
+    html += '<div class="card"><h3 style="margin-top:0">Names for the SFSP form</h3><p class="small muted">The federal meal form needs legal names (as on the birth certificate). These pre-fill the family\'s SFSP form.</p>' +
+      (canName ? '<div class="row"><label class="field" style="flex:1">Legal first name<input type="text" id="lfirst" value="' + esc(c.legal_first || '') + '" placeholder="' + esc(c.first_name) + '"></label><label class="field" style="flex:1">Legal last name<input type="text" id="llast" value="' + esc(c.legal_last || '') + '" placeholder="' + esc(c.last_name) + '"></label></div>' +
+        '<label class="field">Hebrew name<input type="text" id="hname" value="' + esc(c.hebrew_name || '') + '"></label><label class="check"><input type="checkbox" id="staffc"' + (c.staff_child ? ' checked' : '') + '><span>Child of a camp staff member</span></label><button id="savenames">Save</button>'
+        : '<dl class="kv small"><dt>Legal name</dt><dd>' + esc((c.legal_first || c.first_name) + ' ' + (c.legal_last || c.last_name)) + '</dd><dt>Hebrew name</dt><dd>' + esc(c.hebrew_name || '') + '</dd></dl>') + '</div>';
     // Family
     html += '<div class="card"><h3 style="margin-top:0">' + esc(fam.last_name) + ' family</h3><dl class="kv">' +
       parents.map(function (p) { return '<dt>' + esc([p[0], p[1]].filter(Boolean).join(' ')) + '</dt><dd>' + [p[3] && '<a href="tel:' + esc(p[3].replace(/[^\d+]/g, '')) + '">' + esc(p[3]) + '</a>', p[4] && '<a href="mailto:' + esc(p[4]) + '">' + esc(p[4]) + '</a>'].filter(Boolean).join('<br>') + '</dd>'; }).join('') +
@@ -325,6 +331,10 @@
     var sa = document.getElementById('savealert');
     if (sa) sa.onclick = function () {
       sb.from('camper_health').upsert({ camper_id: c.id, camp_id: S.camp.id, alert: document.getElementById('alert').value.trim() || null, updated_by: S.user.email, updated_at: new Date().toISOString() }).then(must).then(function () { toast('Alert saved'); }).catch(fail);
+    };
+    var svn = document.getElementById('savenames');
+    if (svn) svn.onclick = function () {
+      sb.from('campers').update({ legal_first: document.getElementById('lfirst').value.trim() || null, legal_last: document.getElementById('llast').value.trim() || null, hebrew_name: document.getElementById('hname').value.trim() || null, staff_child: document.getElementById('staffc').checked }).eq('id', c.id).then(must).then(function () { toast('Saved'); }).catch(fail);
     };
     var sn = document.getElementById('sendnow');
     if (sn) sn.onclick = function () { sn.disabled = true; fn('notify', { camp: S.camp.id, action: 'remind', family_ids: [c.family_id], force: true }).then(function (r) { toast(r.sent ? 'Reminder sent' : 'Nothing sent: ' + (r.reasons && r.reasons[0] || 'nothing missing')); camperPage(c.id); }).catch(function (e) { sn.disabled = false; fail(e); }); };
@@ -477,11 +487,15 @@
         '<button class="primary">Save</button></form></div>';
       html += '<div class="card"><h2 style="margin-top:0">Required forms</h2>' + S.reqs.map(function (q) { return '<label class="check"><input type="checkbox" data-req="' + q.id + '"' + (q.active ? ' checked' : '') + '><span>' + esc(q.label) + ' <span class="small muted">(' + (q.scope === 'family' ? 'per family' : 'per camper') + ')</span></span></label>'; }).join('') +
         (consent ? '<label class="check" style="margin-top:12px"><input type="checkbox" id="disc"' + (consent.config.accept_disclosure ? ' checked' : '') + '><span>Count Camp Flow\'s "Medical Authorization" disclosure as the consent to treat</span></label>' : '') + '</div>';
-      html += '<div class="card"><h2 style="margin-top:0">SFSP app connection</h2><p class="small muted">Lets the SFSP app tick off each family\'s meal form. In the SFSP app, use this address:</p><code style="word-break:break-all">' + esc(cfg.supabaseUrl + '/functions/v1/sfsp') + '</code>' +
+      html += '<div class="card"><h2 style="margin-top:0">SFSP app connection</h2><p class="small muted">Lets the SFSP app pre-fill each family\'s meal form, tick it off when it\'s handed in, and read the roster. In the SFSP app\'s Settings → Roster app connection, enter:</p>' +
+        '<dl class="kv small"><dt>Roster app address</dt><dd><code style="word-break:break-all">' + esc(cfg.supabaseUrl + '/functions/v1/sfsp') + '</code></dd><dt>Pre-fill address</dt><dd><code style="word-break:break-all">' + esc(cfg.supabaseUrl + '/functions/v1/sfsp/prefill') + '</code></dd></dl>' +
+        '<p class="small muted">Then paste the SFSP app\'s camp ID and the secret it shows you below. If you ever make a new secret there, paste it here too; family links sent before that stop pre-filling.</p>' +
         '<form id="sfspf" style="margin-top:8px"><label class="field">SFSP app camp ID<input type="text" id="sc" value="' + esc(conn.sfsp_camp_id || '') + '"></label><label class="field">Parent form address<input type="text" id="su" value="' + esc(conn.sfsp_form_url || 'https://www.wgcamps.com/apply.html') + '"></label>' +
         '<label class="field">Shared secret ' + (conn.has_secret ? '<span class="chip good">saved</span>' : '<span class="chip warn">not set</span>') + '<input type="password" id="sk" autocomplete="off" placeholder="' + (conn.has_secret ? 'Leave blank to keep the saved one' : 'Paste from the SFSP app') + '"></label><button class="primary">Save</button>' +
         (conn.last_message ? '<p class="small muted">Last message from the SFSP app: ' + esc(when(conn.last_message)) + '</p>' : '') + '</form></div>';
-      html += '<div class="card"><h2 style="margin-top:0">Sessions</h2><ul>' + S.sessions.map(function (s) { return '<li>' + esc(s.name) + (s.starts_on ? ' <span class="muted small">' + esc(day(s.starts_on)) + ' to ' + esc(day(s.ends_on)) + '</span>' : '') + '</li>'; }).join('') + '</ul><form id="sessf" class="row"><input type="text" id="sesn" placeholder="Session name (as in Camp Flow)" aria-label="Session name" style="flex:1"><button>Add</button></form></div>';
+      html += '<div class="card"><h2 style="margin-top:0">Sessions</h2><p class="small muted">Start dates are used for the SFSP age rule (campers 19 or older on the first day don\'t need the meal form) and are shared with the SFSP app.</p>' +
+        S.sessions.map(function (s) { return '<div class="row" style="margin:6px 0"><strong style="flex:1;min-width:140px">' + esc(s.name) + '</strong><label class="small">Starts <input type="date" data-sstart="' + s.id + '" value="' + esc(s.starts_on || '') + '" style="width:auto"></label><label class="small">Ends <input type="date" data-send="' + s.id + '" value="' + esc(s.ends_on || '') + '" style="width:auto"></label></div>'; }).join('') +
+        '<form id="sessf" class="row" style="margin-top:10px"><input type="text" id="sesn" placeholder="Session name (as in Camp Flow)" aria-label="Session name" style="flex:1"><button>Add</button></form></div>';
       html += '</div></div>';
       $main.innerHTML = html;
 
@@ -509,6 +523,12 @@
         e.preventDefault();
         sb.rpc('set_sfsp_connection', { p_camp: S.camp.id, p_sfsp_camp_id: document.getElementById('sc').value, p_form_url: document.getElementById('su').value, p_secret: document.getElementById('sk').value || null }).then(must).then(function () { toast('Saved'); settingsPage(); }).catch(fail);
       };
+      [].forEach.call($main.querySelectorAll('[data-sstart],[data-send]'), function (inp) {
+        inp.onchange = function () {
+          var id = inp.dataset.sstart || inp.dataset.send, patch = {}; patch[inp.dataset.sstart ? 'starts_on' : 'ends_on'] = inp.value || null;
+          sb.from('sessions').update(patch).eq('id', id).then(must).then(function () { var x = S.sessions.find(function (q) { return q.id === id; }); Object.assign(x, patch); S.status = null; toast('Saved'); }).catch(fail);
+        };
+      });
       document.getElementById('sessf').onsubmit = function (e) {
         e.preventDefault(); var n = document.getElementById('sesn').value.trim(); if (!n) return;
         sb.from('sessions').insert({ camp_id: S.camp.id, name: n, external_name: n }).select().single().then(function (r) { S.sessions.push(must(r)); settingsPage(); }).catch(fail);

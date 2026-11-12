@@ -21,7 +21,7 @@ button, .btn { font: inherit; border-radius: 8px; border: 1px solid var(--line-s
 button.primary, .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 button:disabled { opacity: .55; cursor: default; }
 button:focus-visible, .btn:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
-input[type=text], input[type=email], input[type=search], input[type=date], select, textarea { font: inherit; width: 100%; padding: 9px 11px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg); color: var(--ink); }
+input[type=text], input[type=email], input[type=search], input[type=date], input[type=password], select, textarea { font: inherit; width: 100%; padding: 9px 11px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg); color: var(--ink); }
 textarea { min-height: 72px; resize: vertical; }
 label.field { display: block; margin: 10px 0; font-weight: 600; font-size: 15px; }
 label.field > input, label.field > textarea, label.field > select { margin-top: 4px; font-weight: 400; }

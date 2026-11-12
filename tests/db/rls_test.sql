@@ -189,4 +189,81 @@ reset role;
 do $$ begin assert exists (select 1 from audit_log where actor = 'nurse@x.org' and entity = 'submissions' and action = 'update'), 'review logged'; end $$;
 rollback;
 
+
+-- ---------- SFSP spec v1 ----------
+-- The shared secret goes into Vault; the director sees only "saved"; the server reads it back.
+begin; do $$ begin perform pg_temp.as_user('dir@x.org'); end $$;
+select set_sfsp_connection('00000000-0000-0000-0000-0000000000c1', 'camp-teumim', 'https://www.wgcamps.com/apply.html', 'abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG');
+do $$ begin
+  assert (sfsp_connection('00000000-0000-0000-0000-0000000000c1') ->> 'has_secret')::boolean, 'secret saved';
+  assert not (sfsp_connection('00000000-0000-0000-0000-0000000000c1') ? 'secret'), 'secret never shown back';
+end $$;
+do $$ begin
+  perform sfsp_secret_for(null, 'camp-teumim');
+  raise exception 'staff should not read the secret';
+exception when insufficient_privilege then null; end $$;
+do $$ begin
+  perform set_sfsp_connection('00000000-0000-0000-0000-0000000000c1', 'camp teumim', null, null);
+  raise exception 'bad camp ID accepted';
+exception when raise_exception then if sqlerrm like '%bad camp ID%' then raise; end if; end $$;
+reset role;
+set local role service_role;
+do $$ begin
+  assert (select secret from sfsp_secret_for(null, 'camp-teumim')) = 'abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG', 'server reads it';
+  assert (select camp_id from sfsp_secret_for('00000000-0000-0000-0000-0000000000c1', null)) = '00000000-0000-0000-0000-0000000000c1', 'by our camp ID too';
+end $$;
+reset role;
+do $$ begin perform pg_temp.as_user('dir@x.org'); end $$;
+select set_sfsp_connection('00000000-0000-0000-0000-0000000000c1', 'camp-teumim', 'https://www.wgcamps.com/apply.html', null);
+reset role; set local role service_role;
+do $$ begin assert (select secret from sfsp_secret_for(null, 'camp-teumim')) = 'abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG', 'blank keeps the saved secret'; end $$;
+rollback;
+
+-- Age rule, pre-fill and roster.
+begin; set local role service_role;
+update sessions set starts_on = '2027-06-29', ends_on = '2027-07-23' where id = '00000000-0000-0000-0000-0000000000e1';
+update sessions set starts_on = '2027-07-25', ends_on = '2027-08-18' where id = '00000000-0000-0000-0000-0000000000e2';
+-- Cohen family: one child, 19 on the first day of his session -> SFSP not needed.
+update campers set date_of_birth = '2008-06-29' where id = '00000000-0000-0000-0000-0000000000a3';
+-- Levi family: Yosef 19+, Chaim 13 -> still needed.
+update campers set date_of_birth = '2005-01-01' where id = '00000000-0000-0000-0000-0000000000a1';
+update campers set date_of_birth = '2014-05-05', legal_first = 'Hyman', hebrew_name = 'Chaim', staff_child = true where id = '00000000-0000-0000-0000-0000000000a2';
+delete from sfsp_forms;
+insert into camp_secrets (camp_id, sfsp_camp_id) values ('00000000-0000-0000-0000-0000000000c1', 'camp-teumim');
+do $$ declare p jsonb; r jsonb; begin
+  assert sfsp_too_old('00000000-0000-0000-0000-0000000000a3'), '19 on the first day is too old';
+  assert not sfsp_needed('00000000-0000-0000-0000-0000000000f2'), 'all children too old: no form needed';
+  assert sfsp_needed('00000000-0000-0000-0000-0000000000f1'), 'one eligible child: form needed';
+  assert status_for((select id from requirements where key = 'sfsp' and camp_id = '00000000-0000-0000-0000-0000000000c1'), '00000000-0000-0000-0000-0000000000f2', null) = 'not_needed', 'status not needed';
+  assert not exists (select 1 from families_missing('00000000-0000-0000-0000-0000000000c1') m, jsonb_array_elements(m.items) i where m.last_name = 'Cohen' and i ->> 'key' = 'sfsp'), 'no SFSP reminder for Cohen';
+  update campers set date_of_birth = '2008-06-30' where id = '00000000-0000-0000-0000-0000000000a3';
+  assert not sfsp_too_old('00000000-0000-0000-0000-0000000000a3'), 'turns 19 the day after: still eligible';
+
+  p := sfsp_prefill('00000000-0000-0000-0000-0000000000c1', 'campflow:111');
+  assert p ->> 'household' = 'campflow:111', 'pre-fill household';
+  assert p -> 'parent' ->> 'phone' = '7325550101', 'phone digits only';
+  assert jsonb_array_length(p -> 'children') = 2, 'both children';
+  assert p -> 'children' @> '[{"id":"00000000-0000-0000-0000-0000000000a2","legalFirst":"Hyman","legalLast":"Levi","hebrewName":"Chaim","dob":"2014-05-05","sessions":["00000000-0000-0000-0000-0000000000e2"]}]', 'child fields';
+  assert not (p -> 'children' -> 0 ? 'staffChild'), 'pre-fill has no staff flag';
+  assert sfsp_prefill('00000000-0000-0000-0000-0000000000c1', 'campflow:999') is null, 'unknown household';
+  assert sfsp_prefill('00000000-0000-0000-0000-0000000000c2', 'campflow:111') is null, 'other camp';
+
+  r := sfsp_roster('00000000-0000-0000-0000-0000000000c1');
+  assert r ->> 'camp' = 'camp-teumim', 'roster camp';
+  assert r -> 'sessions' @> '[{"id":"00000000-0000-0000-0000-0000000000e1","name":"First half","start":"2027-06-29","end":"2027-07-23"}]', 'sessions';
+  assert jsonb_array_length(r -> 'households') = 2, 'households';
+  assert r -> 'households' @> '[{"id":"campflow:111","lastName":"Levi","phone":"7325550101","children":[{"legalFirst":"Hyman","staffChild":true}]}]', 'roster child';
+  assert not (r::text like '%@%'), 'no emails in the roster';
+  assert not (r::text like '%Oak%'), 'no street addresses';
+end $$;
+rollback;
+
+-- Rate limit.
+begin; set local role service_role;
+do $$ declare ok int := 0; begin
+  for i in 1..35 loop if rate_ok('ip:1.2.3.4', 30, 60) then ok := ok + 1; end if; end loop;
+  assert ok = 30, 'only 30 a minute';
+  assert rate_ok('ip:5.6.7.8', 30, 60), 'other IPs unaffected';
+end $$; rollback;
+
 \echo 'ALL DATABASE TESTS PASSED'

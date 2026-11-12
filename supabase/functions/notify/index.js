@@ -82,7 +82,7 @@ async function send(db, camp, row, kind, by) {
     const { data: s } = await db.from('submissions').select('reject_reason').eq('family_id', fam.id).eq('status', 'rejected').order('reviewed_at', { ascending: false }).limit(1).maybeSingle();
     reason = s?.reject_reason || null;
   }
-  const links = { portal: await newFamilyLink(db, camp, fam.id), sfsp: await sfspLink(db, camp.id, fam.external_id) };
+  const links = { portal: await newFamilyLink(db, camp, fam.id), sfsp: await sfspLink(db, camp, fam.external_id) };
   const email = buildEmail(kind === 'manual' ? 'reminder' : kind, { camp, family: fam, items: row.items, links, reason });
   const from = env('MAIL_FROM') || `${camp.name} <office@wgcamps.com>`;
   let providerId = null, error = null;

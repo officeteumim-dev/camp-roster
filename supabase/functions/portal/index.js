@@ -30,7 +30,8 @@ const userError = msg => Object.assign(new Error(msg), { expose: true });
 async function view(db, link) {
   const v = must(await db.rpc('portal_view', { p_family: link.family_id }), 'view');
   const { data: fam } = await db.from('families').select('external_id').eq('id', link.family_id).single();
-  return { ...v, sfsp_link: await sfspLink(db, link.camp_id, fam.external_id) };
+  const { data: camp } = await db.from('camps').select('id, settings').eq('id', link.camp_id).single();
+  return { ...v, sfsp_link: await sfspLink(db, camp, fam.external_id) };
 }
 
 async function requirementFor(db, link, requirementId, camperId) {

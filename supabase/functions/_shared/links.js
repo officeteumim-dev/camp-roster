@@ -28,12 +28,14 @@ export async function familyFromToken(db, token) {
   return data;
 }
 
-// The family's personal SFSP form link, or null when the SFSP connection isn't set up.
-export async function sfspLink(db, campId, household) {
-  const { data: s } = await db.from('camp_secrets').select('sfsp_camp_id, sfsp_form_url, sfsp_secret').eq('camp_id', campId).maybeSingle();
+// The family's personal SFSP form link (spec v1, section 4), or null when the SFSP connection isn't set up.
+// The link's REF expires with the family's portal links; a form already filled in stays linked after that.
+export async function sfspLink(db, camp, household) {
+  const { data } = await db.rpc('sfsp_secret_for', { p_camp: camp.id, p_sfsp_camp_id: null });
+  const s = Array.isArray(data) ? data[0] : data;
   if (!s?.sfsp_camp_id || !s.sfsp_form_url) return null;
   const u = new URL(s.sfsp_form_url);
   u.searchParams.set('c', s.sfsp_camp_id);
-  if (s.sfsp_secret) u.searchParams.set('r', await sfspRef(s.sfsp_secret, household));
+  if (s.secret) u.searchParams.set('r', await sfspRef(s.secret, household, Math.floor(new Date(linkExpiry(camp)).getTime() / 1000)));
   return u.toString();
 }

@@ -34,6 +34,11 @@ test('reads the campers and transactions reports', async () => {
   assert.equal(campers[1].date_of_birth, '2015-07-02');
   assert.equal(campers[2].date_of_birth, '2014-03-02', 'Excel date number');
   assert.equal(campers[2].external_id, 'campflow:camper:503');
+  assert.equal(campers[0].legal_first, 'Joseph');
+  assert.equal(campers[0].hebrew_name, 'Yosef');
+  assert.equal(campers[0].staff_child, false);
+  assert.equal(campers[1].legal_first, null, 'blank legal name is not used');
+  assert.equal(campers[1].staff_child, true);
   const t = await readXlsx(await fx('transactions.xlsx'));
   assert.equal(CF.detectReport(t.rows[0]), 'transactions');
   const { entries } = CF.parseTransactions(t.rows);
@@ -82,6 +87,8 @@ test('campers from names until the camper report exists, then upgraded in place'
   assert.equal(p.update.length, 1);
   assert.equal(p.update[0].id, 'C1');
   assert.equal(p.update[0].external_id, 'campflow:camper:501');
+  assert.equal(p.update[0].legal_first, 'Joseph');
+  assert.ok(!('legal_first' in p.insert.find(c => c.first_name === 'Chaim')), 'missing legal name leaves what is on file');
   assert.equal(p.insert.length, 2);
   assert.equal(p.problems.length, 1, 'camper whose family is unknown');
 });

@@ -74,6 +74,7 @@
     if (r.status === 'rejected' && r.reason) out += '<div class="reason"><strong>The camp asked for this again:</strong> ' + esc(r.reason) + '</div>';
     if (DONE[r.status] && r.kind !== 'sfsp') out += '<p class="muted small">We have this' + (r.status === 'approved' ? ' and it has been checked' : '') + '. If you need to send a newer one, you can do it below.</p>';
     if (r.kind === 'sfsp') {
+      if (r.status === 'not_needed') return '<p>Your family doesn\'t need this form: it is only for campers 18 and under.</p>';
       if (DONE[r.status]) return '<p>We have your SFSP form. Thank you.</p>';
       return state.data.sfsp_link
         ? '<p>This form lets the camp claim free summer meals. It takes about 5 minutes and opens on the camp\'s meal-program site.</p><a class="btn primary" href="' + esc(state.data.sfsp_link) + '" target="_blank" rel="noopener">Fill in the SFSP form</a><p class="small muted">It will show as received here shortly after you send it.</p>'
