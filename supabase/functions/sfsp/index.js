@@ -8,7 +8,8 @@
 import { admin, json, fail, cors, must } from '../_shared/server.js';
 import { verifyMessage, readSfspRef, signRosterResponse, ID_RE } from '../_shared/crypto.js';
 
-const PREFILL_ORIGINS = ['https://www.wgcamps.com', 'https://staging.wgcamps.com', 'https://staging--sfsp-wgroup.netlify.app'];
+// wgcamps.com and www.wgcamps.com both serve the SFSP site (www redirects to the bare domain).
+const PREFILL_ORIGINS = ['https://wgcamps.com', 'https://www.wgcamps.com', 'https://staging.wgcamps.com', 'https://staging--sfsp-wgroup.netlify.app'];
 
 async function connection(db, sfspCampId) {
   if (!ID_RE.test(sfspCampId || '')) return null;
