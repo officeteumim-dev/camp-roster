@@ -245,6 +245,8 @@ do $$ declare p jsonb; r jsonb; begin
   assert jsonb_array_length(p -> 'children') = 2, 'both children';
   assert p -> 'children' @> '[{"id":"00000000-0000-0000-0000-0000000000a2","legalFirst":"Hyman","legalLast":"Levi","hebrewName":"Chaim","dob":"2014-05-05","sessions":["00000000-0000-0000-0000-0000000000e2"]}]', 'child fields';
   assert not (p -> 'children' -> 0 ? 'staffChild'), 'pre-fill has no staff flag';
+  assert p -> 'sessions' = '[{"id":"00000000-0000-0000-0000-0000000000e1","name":"First half","start":"2027-06-29","end":"2027-07-23"},{"id":"00000000-0000-0000-0000-0000000000e2","name":"Second half","start":"2027-07-25","end":"2027-08-18"}]'::jsonb, 'pre-fill lists the children''s sessions with dates';
+  assert jsonb_array_length(sfsp_prefill('00000000-0000-0000-0000-0000000000c1', 'campflow:222') -> 'sessions') = 1, 'only this family''s sessions';
   assert sfsp_prefill('00000000-0000-0000-0000-0000000000c1', 'campflow:999') is null, 'unknown household';
   assert sfsp_prefill('00000000-0000-0000-0000-0000000000c2', 'campflow:111') is null, 'other camp';
 

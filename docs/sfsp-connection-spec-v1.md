@@ -5,7 +5,7 @@ specific to one camp. Build it multi-camp from the start: every camp has its own
 sessions.
 
 **Status:** Phase 1 (links + "form received" messages) is built in the SFSP app (on its test site; going live soon).
-Phase 2 (pre-fill, roster sync, automatic codes) is being built now against this spec. Section 9 has one open question.
+Phase 2 (pre-fill, roster sync, automatic codes) is being built now against this spec.
 
 ---
 
@@ -115,9 +115,15 @@ Response:
       "dob": "2015-03-08", "sessions": ["sess-boys-1"] },
     { "id": "campflow:12345:c2", "legalFirst": "Rachel", "legalLast": "Levi", "hebrewName": "Rochel",
       "dob": "2006-07-20", "sessions": ["sess-girls-2"] }
+  ],
+  "sessions": [
+    { "id": "sess-boys-1", "name": "Boys first half", "start": "2027-06-29", "end": "2027-07-23" },
+    { "id": "sess-girls-2", "name": "Girls second half", "start": "2027-07-26", "end": "2027-08-18" }
   ]
 }
 ```
+- `sessions`: the sessions these children are in, with dates (`YYYY-MM-DD`). The form uses the start dates for the age
+  rule (section 9) and ticks the matching SFSP sessions.
 - Include only children **enrolled at camp** for this season. `dob` is `YYYY-MM-DD`. Any field may be `""` if unknown,
   except `household` and each child's `id`.
 - The SFSP form fills the **legal** names (the federal record needs legal names). The parent can correct them; the child
@@ -197,7 +203,7 @@ Answer `200` with the roster as the body, signed the same way so W Group knows i
 ```
 - Every child enrolled for the season, with all of their sessions. Children who leave camp are simply left out.
 - `staffChild`: true if the child's parent works at camp (the SFSP roster tracks this).
-- Keep the response under 5 MB. Household-level data is limited to last name, phone and zip, used only to match paper
+- Keep the response under 900 KB (about 3,000 children). Household-level data is limited to last name, phone and zip, used only to match paper
   forms. No emails or street addresses here.
 - The SFSP admin maps each roster app session to an SFSP session once (by name and dates); unmapped sessions are flagged.
 
@@ -221,9 +227,10 @@ eligible.
 - If **some** children are eligible, the parent fills in the form for those children; the older ones are marked not
   eligible automatically.
 
-**Open question (W Group to decide):** federal rules also count people over 18 who have a mental or physical disability
-and take part in a school program for people with disabilities. Until W Group decides how to handle that, follow the
-rule above.
+**Decided (Nov 12, 2026):** a child 19 or older is always marked not eligible automatically. A camp admin can change it
+by hand in the rare case the federal exception applies (people over 18 with a mental or physical disability who take part
+in a school program for people with disabilities). **Possible future change:** have the form ask one yes/no question
+about this for children 19 or older.
 
 ## 10. Build checklist for the roster app
 

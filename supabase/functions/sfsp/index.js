@@ -96,6 +96,7 @@ Deno.serve(async req => {
     if (msg.type === 'sfsp.roster.request') {
       const roster = must(await db.rpc('sfsp_roster', { p_camp: campId }), 'roster');
       const body = JSON.stringify(roster);
+      if (body.length > 900 * 1024) console.error('sfsp roster is over the 900 KB limit in the spec:', body.length, 'bytes');
       return new Response(body, { status: 200, headers: { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...(await signRosterResponse(conn.secret, body)) } });
     }
     return fail('Unknown message type');
