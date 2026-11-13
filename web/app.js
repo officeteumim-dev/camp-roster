@@ -90,6 +90,8 @@
     DB = toDemo ? DEMO.client(S.user.email) : sb;
     if (toDemo) try { sessionStorage.setItem('roster-demo-current', S.user.email); } catch (e) { }
     S.roster = null; S.rf = null; S.filters = { q: '', session: '', missing: '', sort: 'name' };
+    // A camper page belongs to one camp: switching camps goes back to the list.
+    if (S.camp && S.camp.id !== id && /^#camper\//.test(location.hash)) history.replaceState(null, '', location.pathname + '#roster');
     localStorage.setItem('camp', id);
     S.roles = S.access.filter(function (a) { return a.camp_id === id; }).map(function (a) { return a.role; });
     S.myBunks = S.access.filter(function (a) { return a.camp_id === id && a.bunk_id; }).map(function (a) { return a.bunk_id; });
@@ -406,8 +408,9 @@
   function camperPage(id) {
     [].forEach.call($top.querySelectorAll('nav a'), function (a) { a.classList.toggle('on', a.dataset.p === 'forms'); });
     $main.innerHTML = '<p class="muted">Loading…</p>';
-    DB.from('campers').select('*').eq('id', id).single().then(function (r) {
-      var c = must(r);
+    DB.from('campers').select('*').eq('id', id).eq('camp_id', S.camp.id).maybeSingle().then(function (r) {
+      var c = r.error ? null : r.data;
+      if (!c) { $main.innerHTML = '<div class="card"><h2 style="margin-top:0">Camper not found</h2><p>This camper isn\'t in ' + esc(S.camp.name) + '. They may be in another camp, or no longer registered.</p><p><a href="#roster">Back to the roster</a></p></div>'; return; }
       return Promise.all([
         DB.from('families').select('*').eq('id', c.family_id).single(),
         DB.from('submissions').select('*').eq('family_id', c.family_id).order('created_at', { ascending: false }),

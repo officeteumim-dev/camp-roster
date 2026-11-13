@@ -206,6 +206,9 @@ await demo.locator('#demoreset').click(); await demo.waitForTimeout(500);
 await demo.goto('http://app.test/#settings'); await demo.waitForTimeout(400);
 staffText = await demo.locator('main').innerText();
 if (/trial@example.com/.test(staffText)) errors.push('Start over did not wipe changes');
+// A camper link from another camp says so instead of failing.
+await demo.goto('http://app.test/#camper/00000000-0000-0000-0000-000000000999'); await demo.waitForTimeout(400);
+if (!/Camper not found/.test(await demo.locator('main').innerText())) errors.push('missing camper page not handled');
 if (serverCalls.length) errors.push('test camp called the server: ' + serverCalls.slice(0, 3).join(', '));
 
 await browser.close();
