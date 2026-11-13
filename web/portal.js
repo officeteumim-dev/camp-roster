@@ -38,8 +38,7 @@
     d.family_requirements.forEach(function (r) { all.push(r.status); });
     d.campers.forEach(function (c) { c.requirements.forEach(function (r) { all.push(r.status); }); });
     var done = all.filter(function (s) { return DONE[s]; }).length;
-    var parents = [d.family.father, d.family.mother].filter(Boolean).join(' and ');
-    html += '<div class="hello"><p class="muted small">' + esc(d.camp.name) + '</p><h1>' + esc(parents ? 'Hello, ' + parents : 'Hello, ' + d.family.last_name + ' family') + '</h1>';
+    html += '<div class="hello"><p class="muted small">' + esc(d.camp.name) + '</p><h1>' + esc(parentsOf(d)) + '</h1>';
     html += '<p>' + (done === all.length ? 'Everything is in. Thank you!' : 'Here is what the camp still needs' + (d.camp.deadline ? ', by <strong>' + esc(fmtDate(d.camp.deadline)) + '</strong>' : '') + '. You can do a little at a time; your progress is saved.') + '</p>';
     html += '<div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="' + all.length + '" aria-valuenow="' + done + '" aria-label="Forms completed"><i style="width:' + (all.length ? Math.round(done / all.length * 100) : 0) + '%"></i></div>';
     html += '<p class="small muted">' + done + ' of ' + all.length + ' done</p></div>';
@@ -57,6 +56,17 @@
     if (done === all.length) html += '<div class="alldone"><h2>All done</h2><p>Thank you. Nothing else is needed right now.</p></div>';
     html += '<p class="small muted" style="margin-top:32px">Questions? ' + (d.camp.email ? 'Email <a href="mailto:' + esc(d.camp.email) + '">' + esc(d.camp.email) + '</a>' : 'Contact the camp office') + (d.camp.phone ? ' or call ' + esc(d.camp.phone) : '') + '. This page is private to your family; please don\'t share the link.</p>';
     app.innerHTML = html;
+  }
+
+  // "Parents of Chaim Aderet", "Parents of Chaim and Moshe Aderet", "Parents of Chaim, Moshe and Dovid Aderet".
+  function parentsOf(d) {
+    var kids = d.campers;
+    if (!kids.length) return 'Parents of the ' + d.family.last_name + ' family';
+    var list = function (a) { return a.length < 2 ? a.join('') : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1]; };
+    var last = kids[0].last_name;
+    var same = kids.every(function (c) { return c.last_name === last; });
+    return 'Parents of ' + (same ? list(kids.map(function (c) { return c.first_name; })) + (last ? ' ' + last : '')
+      : list(kids.map(function (c) { return (c.first_name + ' ' + c.last_name).trim(); })));
   }
 
   function reqCard(r, camper, who) {

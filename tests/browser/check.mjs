@@ -147,6 +147,8 @@ await phone.screenshot({ path: path.join(out, 'portal.png'), fullPage: true });
 await phone.getByRole('button', { name: /Physical exam/ }).first().click();
 await phone.waitForTimeout(100);
 await phone.screenshot({ path: path.join(out, 'portal-open.png'), fullPage: false });
+const greeting = await phone.locator('h1').first().innerText();
+if (greeting !== 'Parents of Yosef and Chaim Levi') errors.push(`portal greeting is "${greeting}"`);
 const reason = await phone.locator('.reason').innerText().catch(() => '');
 if (!/signature is missing/.test(reason)) errors.push('rejection reason not shown to family');
 await phone.getByRole('button', { name: /Medical history/ }).first().click();
