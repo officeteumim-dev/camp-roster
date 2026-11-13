@@ -62,7 +62,7 @@ export function detectReport(headers) {
   const f = finder(headers);
   if (f('Family Link') >= 0 && f('Camper names', 'Camper count') >= 0) return 'families';
   if (f('Amount', 'Transaction amount') >= 0 && (f('Family Link', 'Family', 'Family ID') >= 0)) return 'transactions';
-  if (f('Family Link', 'Family ID') >= 0 && f('Camper first name', 'First name', 'Camper name', 'Name', 'Camper Link', 'Camper ID') >= 0) return 'campers';
+  if (f('Family Link', 'Family ID', 'FamilyID', 'Household ID') >= 0 && f('Camper first name', 'First name', 'Camper name', 'Name', 'Camper Link', 'Camper ID', 'CamperID') >= 0) return 'campers';
   return null;
 }
 
@@ -115,12 +115,12 @@ export function parseCampers(rows) {
   const out = [], problems = [];
   body.forEach((r, n) => {
     if (r.every(c => !clean(c))) return;
-    const fam = familyIdFromLink(col(r, 'Family Link', 'Family ID', 'Family'));
+    const fam = familyIdFromLink(col(r, 'Family Link', 'Family ID', 'FamilyID', 'Household ID', 'Family'));
     let first = col(r, 'Camper first name', 'First name', 'First');
     let last = col(r, 'Camper last name', 'Last name', 'Last');
     if (!first) { const whole = col(r, 'Camper name', 'Name', 'Camper'); const parts = whole.split(' '); first = parts.shift() || ''; last = last || parts.join(' '); }
     if (!fam || !first) { problems.push({ row: n + 2, problem: !fam ? 'No Camp Flow family link' : 'No camper name' }); return; }
-    const cid = camperIdFromLink(col(r, 'Camper Link', 'Camper ID', 'Link'));
+    const cid = camperIdFromLink(col(r, 'Camper Link', 'Camper ID', 'CamperID', 'Child ID', 'Link'));
     out.push({
       family_external_id: `campflow:${fam}`,
       external_id: cid ? `campflow:camper:${cid}` : null,

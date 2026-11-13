@@ -48,7 +48,15 @@
   .list button.item { all: unset; box-sizing: border-box; display: flex; justify-content: space-between; width: 100%; padding: 9px 12px; border-radius: 8px; cursor: pointer; }
   .list button.item.on { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
   .list button.item:focus-visible { outline: 3px solid var(--accent); }
-  @media print { header.top, .noprint { display: none !important; } body, .card { background: #fff; border: 0; } }
+  details.msel { position: relative; }
+  details.msel > summary { list-style: none; cursor: pointer; border: 1px solid var(--line-strong); border-radius: 8px; padding: 8px 12px; background: var(--bg); font-size: 15px; white-space: nowrap; }
+  details.msel > summary::-webkit-details-marker { display: none; }
+  details.msel > summary::after { content: ' ▾'; color: var(--muted); }
+  .msel-box { position: absolute; z-index: 6; top: calc(100% + 4px); left: 0; background: var(--bg); border: 1px solid var(--line-strong); border-radius: 10px; padding: 8px 12px; min-width: 200px; max-height: 340px; overflow-y: auto; box-shadow: 0 6px 20px rgba(0,0,0,.12); }
+  details.msel[style*="margin-left:auto"] .msel-box { left: auto; right: 0; }
+  button.sortbtn { all: unset; cursor: pointer; font-weight: 600; color: var(--muted); }
+  button.sortbtn:focus-visible { outline: 3px solid var(--accent); }
+  @media print { header.top, .noprint { display: none !important; } .wrap { overflow: visible; border: 0; } table.grid { font-size: 11px; } body, .card { background: #fff; border: 0; } }
 </style>
 </head>
 <body>

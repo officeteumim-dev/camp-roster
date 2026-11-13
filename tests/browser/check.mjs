@@ -40,7 +40,16 @@ const FAKE = {
   tables: {
     camps: [camp], requirements: reqs,
     sessions: [{ id: 's1', name: 'First Half' }, { id: 's2', name: 'Second Half' }],
-    campers: [{ id: 'k1', family_id: 'f1', first_name: 'Yosef', last_name: 'Levi', grade: '8th', date_of_birth: '2013-03-14', active: true }],
+    campers: [
+      { id: 'k1', family_id: 'f1', external_id: 'campflow:camper:501', first_name: 'Yosef', last_name: 'Levi', grade: '8th', gender: 'Male', date_of_birth: '2013-03-14', active: true, hebrew_name: 'Yosef',
+        families: { external_id: 'campflow:10001', last_name: 'Levi', father_first: 'Moshe', mother_first: 'Rivka', father_phone: '(732) 555-0101', mother_phone: '(732) 555-0102', city: 'Lakewood' },
+        enrollments: [{ sessions: { name: 'First Half' } }], bunk_assignments: [{ bunks: { name: 'Bunk A' } }], camper_health: { alert: 'Peanut allergy, EpiPen' } },
+      { id: 'k2', family_id: 'f1', external_id: 'campflow:camper:502', first_name: 'Chaim', last_name: 'Levi', grade: '6th', gender: 'Male', date_of_birth: '2015-07-02', active: true,
+        families: { external_id: 'campflow:10001', last_name: 'Levi', father_first: 'Moshe', mother_first: 'Rivka', father_phone: '(732) 555-0101' },
+        enrollments: [{ sessions: { name: 'Second Half' } }], bunk_assignments: [], camper_health: null },
+      { id: 'k3', family_id: 'f2', external_id: 'campflow:camper:503', first_name: 'Shmuel', last_name: 'Cohen', grade: '10th', gender: 'Male', date_of_birth: '2010-01-20', active: true,
+        families: { external_id: 'campflow:10002', last_name: 'Cohen', father_first: 'Dovid', father_phone: '(845) 555-0201' },
+        enrollments: [{ sessions: { name: 'First Half' } }], bunk_assignments: [{ bunks: { name: 'Bunk B' } }], camper_health: [] }],
     families: [{ id: 'f1', external_id: 'campflow:10001', last_name: 'Levi', father_title: 'Rabbi', father_first: 'Moshe', father_phone: '(732) 555-0101', father_email: 'moshe@example.org', mother_first: 'Rivka', address: '12 Oak St', city: 'Lakewood', state: 'NJ', zip: '08701', emergency_contacts: ['Sara Katz (Aunt) — (732) 555-0199'], disclosures: { 'Medical Authorization': 'Yes' }, active: true }],
     submissions: [{ id: 'x1', requirement_id: 'r3', family_id: 'f1', camper_id: 'k1', status: 'received', files: [{ path: 'c1/f1/b/0-physical.jpg', name: 'physical.jpg' }], answers: {}, submitted_by: 'family', created_at: '2026-11-20T15:00:00Z' },
       { id: 'x2', requirement_id: 'r2', family_id: 'f1', camper_id: 'k1', status: 'received', files: [{ path: 'c1/f1/b/0-card.jpg', name: 'card.jpg' }], answers: { carrier: 'Aetna', member_id: 'W123' }, submitted_by: 'family', created_at: '2026-11-20T15:00:00Z' }],
@@ -95,13 +104,31 @@ async function newPage(width) {
 }
 
 const page = await newPage(1360);
-for (const h of ['forms', 'camper/k1', 'bunks', 'mybunk', 'money', 'imports', 'settings', 'activity']) {
+for (const h of ['roster', 'forms', 'camper/k1', 'bunks', 'mybunk', 'money', 'imports', 'settings', 'activity']) {
   await page.goto(`http://app.test/#${h}`);
   await page.waitForTimeout(350);
   const text = await page.locator('main').innerText();
   if (/Loading…/.test(text) && text.length < 20) errors.push(`#${h} never finished loading`);
   await page.screenshot({ path: path.join(out, `staff-${h.replace('/', '-')}.png`), fullPage: true });
 }
+// Roster: grade filter, sort by grade (6th before 10th), export.
+await page.goto('http://app.test/#roster'); await page.waitForTimeout(300);
+await page.locator('summary', { hasText: 'Grade' }).click();
+await page.locator('[data-f="grade"][value="8th"]').check(); await page.waitForTimeout(100);
+let names = await page.locator('table.grid tbody td:nth-child(2)').allInnerTexts();
+if (names.join() !== 'Yosef') errors.push(`grade filter shows ${names.join()}`);
+await page.locator('[data-f="grade"][value="10th"]').check(); await page.waitForTimeout(100);
+await page.locator('[data-sort="grade"]').click(); await page.waitForTimeout(100);
+names = await page.locator('table.grid tbody td:nth-child(2)').allInnerTexts();
+if (names.join() !== 'Yosef,Shmuel') errors.push(`grade sort shows ${names.join()}`);
+await page.locator('[data-sort="grade"]').click(); await page.waitForTimeout(100);
+names = await page.locator('table.grid tbody td:nth-child(2)').allInnerTexts();
+if (names.join() !== 'Shmuel,Yosef') errors.push(`grade sort descending shows ${names.join()}`);
+await page.screenshot({ path: path.join(out, 'staff-roster-filtered.png'), fullPage: true });
+const [dl] = await Promise.all([page.waitForEvent('download'), page.locator('#rcsv').click()]);
+const csv = await readFile(await dl.path(), 'utf8');
+if (!/^\ufeffLast name,First name,Grade/.test(csv) || csv.trim().split('\n').length !== 3) errors.push('roster export wrong: ' + csv.slice(0, 120));
+
 // Interactions: filter to missing physicals, approve a form, reject one.
 await page.goto('http://app.test/#forms'); await page.waitForTimeout(300);
 await page.selectOption('#fm', 'physical'); await page.waitForTimeout(100);

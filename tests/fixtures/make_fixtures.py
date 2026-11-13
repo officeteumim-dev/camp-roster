@@ -43,3 +43,10 @@ ws.append(['T2', '10/02/2026', 'https://app.campflow.org/families/10001', 'Payme
 ws.append(['T3', '10/03/2026', 'https://app.campflow.org/families/10001', 'Scholarship', 'Sibling discount', '($200.00)'])
 wb.save(os.path.join(here, 'transactions.xlsx'))
 print('fixtures written')
+
+# Camper report with plain ID numbers instead of links (as Camp Flow may export them).
+wb = Workbook(); ws = wb.active; ws.title = 'Campers'
+ws.append(['Camper ID', 'Family ID', 'First name', 'Last name', 'Date of birth', 'Grade', 'Sessions'])
+ws.append([501, 10001, 'Yosef', 'Levi', '03/14/2013', '8th', 'First Half'])
+ws.append([503, 10002, 'Shmuel', 'Cohen', '07/01/2014', '7th', 'First Half'])
+wb.save(os.path.join(here, 'campers_ids.xlsx'))

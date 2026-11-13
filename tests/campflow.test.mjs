@@ -104,3 +104,13 @@ test('the real Camp Flow report, if present locally (never committed)', async t 
   assert.ok(families.every(f => f.camper_names.length >= 1));
   console.log(`real report: ${families.length} families, ${families.reduce((n, f) => n + f.camper_names.length, 0)} campers`);
 });
+
+test('camper report with plain Camper ID and Family ID numbers', async () => {
+  const { rows } = await readXlsx(await fx('campers_ids.xlsx'));
+  assert.equal(CF.detectReport(rows[0]), 'campers');
+  const { campers, problems } = CF.parseCampers(rows);
+  assert.equal(problems.length, 0);
+  assert.equal(campers[0].external_id, 'campflow:camper:501');
+  assert.equal(campers[0].family_external_id, 'campflow:10001');
+  assert.equal(campers[1].family_external_id, 'campflow:10002');
+});

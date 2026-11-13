@@ -78,6 +78,7 @@
   }
 
   var PAGES = [
+    ['roster', 'Roster', function () { return has('director', 'office', 'infirmary', 'finance', 'head_counselor'); }],
     ['forms', 'Forms', function () { return has('director', 'office', 'infirmary'); }],
     ['bunks', 'Bunks', function () { return has('director', 'office', 'head_counselor', 'infirmary'); }],
     ['mybunk', 'My bunk', function () { return has('counselor') && S.myBunks.length; }],
@@ -106,10 +107,169 @@
     if (!allowed.some(function (p) { return p[0] === page; })) page = allowed[0] ? allowed[0][0] : null;
     [].forEach.call($top.querySelectorAll('nav a'), function (a) { a.classList.toggle('on', a.dataset.p === page); a.setAttribute('aria-current', a.dataset.p === page ? 'page' : 'false'); });
     if (!page) { $main.innerHTML = '<div class="card">Nothing to show for your role yet.</div>'; return; }
-    ({ forms: formsPage, bunks: bunksPage, mybunk: myBunkPage, money: moneyPage, imports: importsPage, settings: settingsPage, activity: activityPage })[page]();
+    ({ roster: rosterPage, forms: formsPage, bunks: bunksPage, mybunk: myBunkPage, money: moneyPage, imports: importsPage, settings: settingsPage, activity: activityPage })[page]();
   }
   window.addEventListener('hashchange', route);
   document.addEventListener('click', function (e) { if (e.target.closest('[data-print]')) window.print(); });
+
+  // ---------- Roster: every camper, any column, filter, sort, export ----------
+  var ROSTER_COLS = [
+    ['last', 'Last name', function (r) { return r.last_name; }],
+    ['first', 'First name', function (r) { return r.first_name; }],
+    ['grade', 'Grade', function (r) { return r.grade; }, 'grade'],
+    ['age', 'Age', function (r) { return r.age; }, 'num'],
+    ['dob', 'Date of birth', function (r) { return r.date_of_birth; }],
+    ['gender', 'Gender', function (r) { return r.gender; }],
+    ['sessions', 'Sessions', function (r) { return r.sessions.join(', '); }],
+    ['bunks', 'Bunk', function (r) { return r.bunks.join(', '); }],
+    ['alert', 'Alert', function (r) { return r.alert; }],
+    ['forms', 'Forms missing', function (r) { return r.missing; }, 'num'],
+    ['legal', 'Legal name', function (r) { return (r.legal_first || r.legal_last) ? [r.legal_first || r.first_name, r.legal_last || r.last_name].join(' ') : ''; }],
+    ['hebrew', 'Hebrew name', function (r) { return r.hebrew_name; }],
+    ['staffchild', 'Staff child', function (r) { return r.staff_child ? 'Yes' : ''; }],
+    ['father', 'Father', function (r) { return r.f && r.f.father_first ? r.f.father_first + ' ' + r.f.last_name : ''; }],
+    ['fphone', 'Father phone', function (r) { return r.f && r.f.father_phone; }],
+    ['femail', 'Father email', function (r) { return r.f && r.f.father_email; }],
+    ['mother', 'Mother', function (r) { return r.f && r.f.mother_first ? r.f.mother_first + ' ' + r.f.last_name : ''; }],
+    ['mphone', 'Mother phone', function (r) { return r.f && r.f.mother_phone; }],
+    ['memail', 'Mother email', function (r) { return r.f && r.f.mother_email; }],
+    ['address', 'Address', function (r) { return r.f ? [r.f.address, r.f.city, r.f.state, r.f.zip].filter(Boolean).join(', ') : ''; }],
+    ['city', 'City', function (r) { return r.f && r.f.city; }],
+    ['emergency', 'Emergency contacts', function (r) { return r.f && (r.f.emergency_contacts || []).join('; '); }],
+    ['camperid', 'Camp Flow camper ID', function (r) { return (r.external_id || '').replace(/^campflow:camper:/, ''); }, 'num'],
+    ['familyid', 'Camp Flow family ID', function (r) { return r.f ? r.f.external_id.replace(/^campflow:/, '') : ''; }, 'num']
+  ];
+  var ROSTER_DEFAULT = ['last', 'first', 'grade', 'age', 'sessions', 'bunks', 'alert', 'father', 'fphone', 'mother', 'mphone'];
+  var gradeRank = function (g) { var m = String(g || '').match(/\d+/); if (m) return +m[0]; return /^k/i.test(g || '') ? 0 : /pre/i.test(g || '') ? -1 : 99; };
+
+  function loadRoster(force) {
+    if (S.roster && !force) return Promise.resolve(S.roster);
+    var sel = 'id, external_id, first_name, last_name, legal_first, legal_last, hebrew_name, date_of_birth, gender, grade, staff_child, family_id, ' +
+      'families(external_id, last_name, father_first, mother_first, father_phone, mother_phone, father_email, mother_email, address, city, state, zip, emergency_contacts), ' +
+      'enrollments(sessions(name)), bunk_assignments(bunks(name)), camper_health(alert)';
+    var out = [];
+    var page = function (n) {
+      return sb.from('campers').select(sel).eq('camp_id', S.camp.id).eq('active', true).order('last_name').order('first_name').range(n * 1000, n * 1000 + 999)
+        .then(function (r) { var rows = must(r); out = out.concat(rows); return rows.length === 1000 ? page(n + 1) : out; });
+    };
+    var status = has('director', 'office', 'infirmary') ? loadStatus().catch(function () { return []; }) : Promise.resolve([]);
+    return Promise.all([page(0), status]).then(function (x) {
+      var miss = {}; (x[1] || []).forEach(function (s) { miss[s.camper_id] = s.missing; });
+      var today = new Date();
+      S.roster = x[0].map(function (c) {
+        var dob = c.date_of_birth ? new Date(c.date_of_birth + 'T12:00:00') : null, age = '';
+        if (dob) { age = today.getFullYear() - dob.getFullYear(); if (today.getMonth() < dob.getMonth() || (today.getMonth() === dob.getMonth() && today.getDate() < dob.getDate())) age--; }
+        var h = Array.isArray(c.camper_health) ? c.camper_health[0] : c.camper_health;
+        return Object.assign({}, c, { f: c.families, age: age,
+          sessions: (c.enrollments || []).map(function (e) { return e.sessions && e.sessions.name; }).filter(Boolean),
+          bunks: (c.bunk_assignments || []).map(function (b) { return b.bunks && b.bunks.name; }).filter(Boolean),
+          alert: h && h.alert || '', missing: c.id in miss ? miss[c.id] : '' });
+      });
+      return S.roster;
+    });
+  }
+
+  function rosterPage() {
+    $main.innerHTML = '<p class="muted">Loading…</p>';
+    loadRoster(true).then(drawRoster).catch(fail);
+  }
+
+  function drawRoster() {
+    var R = S.rf || (S.rf = { q: '', session: [], bunk: [], grade: [], gender: [], sort: 'last', dir: 1 });
+    var saved; try { saved = JSON.parse(localStorage.getItem('rosterCols') || 'null'); } catch (e) { saved = null; }
+    var cols = ROSTER_COLS.filter(function (c) { return (saved || ROSTER_DEFAULT).indexOf(c[0]) >= 0; });
+    // Columns a role can't see stay empty; hide them rather than show blanks.
+    var anyVal = function (key) { var c = ROSTER_COLS.find(function (x) { return x[0] === key; }); return S.roster.some(function (r) { var v = c[2](r); return v !== '' && v != null; }); };
+    var all = S.roster;
+    var uniq = function (fn) { var seen = {}; all.forEach(function (r) { [].concat(fn(r)).forEach(function (v) { if (v) seen[v] = 1; }); }); return Object.keys(seen); };
+    var opts = {
+      session: uniq(function (r) { return r.sessions; }).sort(),
+      bunk: uniq(function (r) { return r.bunks.length ? r.bunks : ['(no bunk)']; }).sort(),
+      grade: uniq(function (r) { return r.grade || '(none)'; }).sort(function (a, b) { return gradeRank(a) - gradeRank(b) || a.localeCompare(b); }),
+      gender: uniq(function (r) { return r.gender || '(none)'; }).sort()
+    };
+    var q = R.q.toLowerCase();
+    var rows = all.filter(function (r) {
+      if (q && (r.first_name + ' ' + r.last_name + ' ' + (r.hebrew_name || '') + ' ' + (r.f ? [r.f.father_first, r.f.mother_first, r.f.father_phone, r.f.mother_phone, r.f.father_email, r.f.mother_email].join(' ') : '')).toLowerCase().indexOf(q) < 0) return false;
+      if (R.session.length && !r.sessions.some(function (s) { return R.session.indexOf(s) >= 0; })) return false;
+      if (R.bunk.length && !(r.bunks.length ? r.bunks : ['(no bunk)']).some(function (b) { return R.bunk.indexOf(b) >= 0; })) return false;
+      if (R.grade.length && R.grade.indexOf(r.grade || '(none)') < 0) return false;
+      if (R.gender.length && R.gender.indexOf(r.gender || '(none)') < 0) return false;
+      return true;
+    });
+    var sc = ROSTER_COLS.find(function (c) { return c[0] === R.sort; }) || ROSTER_COLS[0];
+    rows.sort(function (a, b) {
+      var x = sc[2](a), y = sc[2](b), d;
+      if (sc[3] === 'grade') d = gradeRank(x) - gradeRank(y) || String(x || '').localeCompare(String(y || ''));
+      else if (sc[3] === 'num') d = (x === '' || x == null ? Infinity : +x) - (y === '' || y == null ? Infinity : +y);
+      else d = String(x || '').localeCompare(String(y || ''), undefined, { numeric: true, sensitivity: 'base' });
+      if ((x === '' || x == null) !== (y === '' || y == null)) return (x === '' || x == null) ? 1 : -1;
+      return d * R.dir || a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name);
+    });
+    var multi = function (key, label) {
+      var chosen = R[key];
+      return '<details class="msel"><summary>' + label + (chosen.length ? ': <strong>' + esc(chosen.length === 1 ? chosen[0] : chosen.length + ' chosen') + '</strong>' : ': all') + '</summary><div class="msel-box">' +
+        opts[key].map(function (o) { return '<label class="check" style="margin:4px 0"><input type="checkbox" data-f="' + key + '" value="' + esc(o) + '"' + (chosen.indexOf(o) >= 0 ? ' checked' : '') + '><span>' + esc(o) + '</span></label>'; }).join('') +
+        (opts[key].length ? '' : '<span class="muted small">None yet</span>') + '</div></details>';
+    };
+    var html = '<div class="row" style="justify-content:space-between"><h1 style="margin:0">Roster</h1><span class="row noprint"><button id="rcsv">Export these ' + rows.length + '</button><button data-print>Print</button></span></div>' +
+      '<div class="filters noprint" style="margin-top:12px"><label>Search<input type="search" id="rq" value="' + esc(R.q) + '" placeholder="Name, parent, phone or email"></label>' +
+      multi('session', 'Session') + multi('bunk', 'Bunk') + multi('grade', 'Grade') + multi('gender', 'Gender') +
+      (R.session.length + R.bunk.length + R.grade.length + R.gender.length + (R.q ? 1 : 0) ? '<button id="rclear">Clear filters</button>' : '') +
+      '<details class="msel" style="margin-left:auto"><summary>Columns</summary><div class="msel-box">' +
+      ROSTER_COLS.filter(function (c) { return anyVal(c[0]) || cols.indexOf(c) >= 0; }).map(function (c) { return '<label class="check" style="margin:4px 0"><input type="checkbox" data-col="' + c[0] + '"' + (cols.indexOf(c) >= 0 ? ' checked' : '') + '><span>' + esc(c[1]) + '</span></label>'; }).join('') +
+      '<button id="rcolreset" class="small" style="margin-top:6px">Reset columns</button></div></details></div>';
+    html += '<p class="small muted">' + rows.length + ' of ' + all.length + ' campers · click a column heading to sort</p>';
+    html += '<div class="wrap"><table class="grid"><thead><tr>' + cols.map(function (c) {
+      var on = c[0] === R.sort;
+      return '<th aria-sort="' + (on ? (R.dir > 0 ? 'ascending' : 'descending') : 'none') + '"><button class="sortbtn" data-sort="' + c[0] + '">' + esc(c[1]) + (on ? (R.dir > 0 ? ' ▲' : ' ▼') : '') + '</button></th>';
+    }).join('') + '</tr></thead><tbody>';
+    var canOpen = has('director', 'office', 'infirmary');
+    rows.forEach(function (r) {
+      html += '<tr' + (canOpen ? ' class="click" data-id="' + r.id + '" tabindex="0"' : '') + '>' + cols.map(function (c) {
+        var v = c[2](r);
+        if (c[0] === 'alert' && v) return '<td><strong style="color:var(--bad-ink)">' + esc(v) + '</strong></td>';
+        if ((c[0] === 'fphone' || c[0] === 'mphone') && v) return '<td style="white-space:nowrap"><a href="tel:' + esc(String(v).replace(/[^\d+]/g, '')) + '">' + esc(v) + '</a></td>';
+        return '<td>' + esc(v == null ? '' : v) + '</td>';
+      }).join('') + '</tr>';
+    });
+    if (!rows.length) html += '<tr><td colspan="' + cols.length + '" class="muted">' + (all.length ? 'No campers match these filters.' : 'No campers yet. They come from the Camp Flow reports.') + '</td></tr>';
+    html += '</tbody></table></div>';
+    $main.innerHTML = html;
+
+    var open = $main.querySelector('details.msel[data-open]');
+    var redraw = function (keep) { var o = keep && document.activeElement && document.activeElement.closest && document.activeElement.closest('details.msel'); var idx = o ? [].indexOf.call($main.querySelectorAll('details.msel'), o) : -1; drawRoster(); if (idx >= 0) { var d = $main.querySelectorAll('details.msel')[idx]; d.open = true; } };
+    var rq = document.getElementById('rq');
+    rq.oninput = function () { R.q = rq.value; drawRoster(); var n = document.getElementById('rq'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); };
+    [].forEach.call($main.querySelectorAll('[data-f]'), function (cb) {
+      cb.onchange = function () { var k = cb.dataset.f, v = cb.value; R[k] = cb.checked ? R[k].concat([v]) : R[k].filter(function (x) { return x !== v; }); redraw(true); var b = $main.querySelector('[data-f="' + k + '"][value="' + CSS.escape(v) + '"]'); if (b) b.focus(); };
+    });
+    [].forEach.call($main.querySelectorAll('[data-col]'), function (cb) {
+      cb.onchange = function () {
+        var keys = [].map.call($main.querySelectorAll('[data-col]:checked'), function (x) { return x.dataset.col; });
+        if (!keys.length) return toast('Keep at least one column.');
+        localStorage.setItem('rosterCols', JSON.stringify(keys)); redraw(true); var b = $main.querySelector('[data-col="' + cb.dataset.col + '"]'); if (b) b.focus();
+      };
+    });
+    var cr = document.getElementById('rcolreset'); cr.onclick = function () { localStorage.removeItem('rosterCols'); drawRoster(); };
+    var cl = document.getElementById('rclear'); if (cl) cl.onclick = function () { S.rf = null; drawRoster(); };
+    [].forEach.call($main.querySelectorAll('[data-sort]'), function (b) {
+      b.onclick = function () { if (R.sort === b.dataset.sort) R.dir = -R.dir; else { R.sort = b.dataset.sort; R.dir = 1; } drawRoster(); var n = $main.querySelector('[data-sort="' + b.dataset.sort + '"]'); if (n) n.focus(); };
+    });
+    [].forEach.call($main.querySelectorAll('tr.click'), function (tr) {
+      tr.onclick = function (e) { if (e.target.closest('a')) return; location.hash = 'camper/' + tr.dataset.id; };
+      tr.onkeydown = function (e) { if (e.key === 'Enter') location.hash = 'camper/' + tr.dataset.id; };
+    });
+    document.getElementById('rcsv').onclick = function () {
+      var qv = function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+      var lines = [cols.map(function (c) { return qv(c[1]); }).join(',')].concat(rows.map(function (r) { return cols.map(function (c) { return qv(c[2](r)); }).join(','); }));
+      var label = [].concat(R.session, R.bunk, R.grade, R.gender).join('-').replace(/[^A-Za-z0-9-]+/g, '_').slice(0, 60);
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob(['﻿' + lines.join('\n')], { type: 'text/csv' }));
+      a.download = 'roster' + (label ? '-' + label : '') + '-' + new Date().toISOString().slice(0, 10) + '.csv';
+      a.click();
+    };
+  }
 
   // ---------- Forms dashboard ----------
   function loadStatus(force) {
