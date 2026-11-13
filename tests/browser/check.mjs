@@ -76,14 +76,14 @@ const portalView = {
 
 const browser = await pw.chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--no-sandbox'] });
 const errors = [];
-async function newPage(width) {
+async function newPage(width, fake = FAKE) {
   const ctx = await browser.newContext({ viewport: { width, height: 900 } });
   const page = await ctx.newPage();
   page.on('pageerror', e => errors.push(`${page.url()}: ${e.message}`));
   page.on('console', m => { if (m.type() === 'error') errors.push(`${page.url()}: console: ${m.text()}`); });
   page.on('dialog', d => d.accept('Please send a clearer photo.'));
-  await page.addInitScript(f => { window.FAKE = f; }, FAKE);
-  await page.route('**/*', async route => {
+  await ctx.addInitScript(f => { window.FAKE = f; }, fake);
+  await ctx.route('**/*', async route => {
     const u = new URL(route.request().url());
     if (u.hostname === 'cdn.jsdelivr.net') return route.fulfill({ contentType: 'text/javascript', body: await readFile(path.join(here, 'fake-supabase.js'), 'utf8') });
     if (u.hostname === 'fake.supabase.co' && u.pathname.endsWith('/portal')) {
@@ -156,6 +156,57 @@ await phone.getByText('Yes', { exact: true }).first().click();
 await phone.waitForTimeout(100);
 if (!(await phone.locator('textarea[data-field="allergies"]').count())) errors.push('medical history details did not appear after "Yes"');
 await phone.screenshot({ path: path.join(out, 'portal-medical.png'), fullPage: false });
+
+// Camp Test Site, as a new user with no camp yet: explore, roster of 500, family page practice, nothing sent anywhere.
+const NEW = JSON.parse(JSON.stringify(FAKE)); NEW.rpc.my_access = []; NEW.session.user.email = 'new@example.com';
+const demo = await newPage(1360, NEW);
+const serverCalls = [];
+demo.on('request', r => { const u = r.url(); if (u.includes('fake.supabase.co')) serverCalls.push(u); });
+await demo.goto('http://app.test/'); await demo.waitForTimeout(300);
+await demo.getByRole('button', { name: /Explore Camp Test Site/ }).click(); await demo.waitForTimeout(500);
+const banner = await demo.locator('#demobar').innerText();
+if (!/practice camp/.test(banner) || !/Start over/.test(banner)) errors.push('test camp banner missing');
+await demo.goto('http://app.test/#roster'); await demo.waitForTimeout(800);
+const count = await demo.locator('main p.small').first().innerText();
+if (!/500 of 500 campers/.test(count)) errors.push(`test camp roster shows "${count}"`);
+await demo.screenshot({ path: path.join(out, 'demo-roster.png') });
+await demo.goto('http://app.test/#forms'); await demo.waitForTimeout(800);
+await demo.screenshot({ path: path.join(out, 'demo-forms.png') });
+await demo.locator('tr.click').first().click(); await demo.waitForTimeout(500);
+await demo.screenshot({ path: path.join(out, 'demo-camper.png'), fullPage: true });
+await demo.locator('#sendnow').click(); await demo.waitForTimeout(200);
+const toastText = await demo.locator('.toast').last().innerText().catch(() => '');
+if (!/aren.t sent/.test(toastText)) errors.push(`reminder in test camp: "${toastText}"`);
+const [popup] = await Promise.all([demo.waitForEvent('popup'), demo.locator('#copylink').click()]);
+popup.on('pageerror', e => errors.push(`practice family page: ${e.message}`));
+await popup.waitForTimeout(600);
+const ptext = await popup.locator('main').innerText();
+if (!/Practice family page/.test(ptext) || !/Parents of/.test(ptext)) errors.push('practice family page did not open: ' + ptext.slice(0, 100));
+const sfspHref = await popup.locator('a.btn.primary').first().getAttribute('href').catch(() => null);
+await popup.screenshot({ path: path.join(out, 'demo-portal.png'), fullPage: true });
+const consent = popup.getByRole('button', { name: /Consent to treat/ });
+if (await consent.count()) {
+  await consent.click();
+  await popup.locator('input[data-agree]').check();
+  await popup.locator('input[data-field="signed_name"]').fill('Practice Parent');
+  await popup.getByRole('button', { name: 'Send' }).click(); await popup.waitForTimeout(400);
+  await demo.waitForTimeout(400);
+  const t2 = await demo.locator('.toast').last().innerText().catch(() => '');
+  if (!/practice form came in/.test(t2)) errors.push('staff tab did not get the practice form: ' + t2);
+}
+await popup.getByRole('button', { name: /SFSP meal form/ }).click().catch(() => {});
+const sfspLink = await popup.locator('a', { hasText: 'Fill in the SFSP form' }).getAttribute('href').catch(() => null);
+if (sfspLink && sfspLink !== 'https://wgcamps.com/apply.html?demo=1') errors.push('SFSP button in the test camp goes to ' + sfspLink);
+// Start over wipes changes; going to the sign-out clears too.
+await demo.goto('http://app.test/#settings'); await demo.waitForTimeout(400);
+await demo.locator('#se').fill('trial@example.com'); await demo.locator('#addstaff button.primary').click(); await demo.waitForTimeout(200);
+let staffText = await demo.locator('main').innerText();
+if (!/trial@example.com/.test(staffText)) errors.push('test camp: adding staff did not show');
+await demo.locator('#demoreset').click(); await demo.waitForTimeout(500);
+await demo.goto('http://app.test/#settings'); await demo.waitForTimeout(400);
+staffText = await demo.locator('main').innerText();
+if (/trial@example.com/.test(staffText)) errors.push('Start over did not wipe changes');
+if (serverCalls.length) errors.push('test camp called the server: ' + serverCalls.slice(0, 3).join(', '));
 
 await browser.close();
 if (errors.length) { console.error('PAGE CHECK FAILED:\n' + errors.join('\n')); process.exit(1); }

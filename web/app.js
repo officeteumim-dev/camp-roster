@@ -4,6 +4,8 @@
   'use strict';
   var cfg = window.ROSTER_CONFIG;
   var sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
+  // DB is the real database, or Camp Test Site's in-browser stand-in (demo-db.js) while someone is in the test camp.
+  var DB = sb, DEMO = window.DemoDB;
   var $main = document.getElementById('main'), $top = document.getElementById('top');
   var S = { user: null, access: [], camp: null, roles: [], reqs: [], sessions: [], status: null, filters: { q: '', session: '', missing: '', sort: 'name' } };
 
@@ -14,8 +16,9 @@
   var when = function (iso) { return iso ? new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''; };
   var day = function (iso) { return iso ? new Date(iso.length === 10 ? iso + 'T12:00:00' : iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''; };
   function toast(msg) { var t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'status'); t.textContent = msg; document.body.appendChild(t); setTimeout(function () { t.remove(); }, 3200); }
-  function must(res) { if (res.error) throw new Error(res.error.message); return res.data; }
-  function fail(e) { console.error(e); toast(e.message || 'Something went wrong'); }
+  function must(res) { if (res.error) throw Object.assign(new Error(res.error.message), { expected: !!res.error.expected }); return res.data; }
+  function fail(e) { if (!e.expected) console.error(e); toast(e.message || 'Something went wrong'); }
+  var said = function (msg) { return Object.assign(new Error(msg), { expected: true }); };
   var ROLE_NAMES = { director: 'Director', office: 'Office', finance: 'Finance', infirmary: 'Infirmary', head_counselor: 'Head counselor', counselor: 'Counselor' };
   var STATUS = {
     approved: ['good', 'Approved'], received: ['info', 'Received'], not_needed: ['good', 'Not needed'],
@@ -24,6 +27,12 @@
   var chip = function (s) { var x = STATUS[s] || ['none', s]; return '<span class="chip ' + x[0] + '">' + x[1] + '</span>'; };
 
   function fn(name, body, opts) {
+    if (S.demo) {
+      if (name === 'notify' && body.action === 'link') return Promise.resolve({ link: location.origin + '/portal.html?demo=' + encodeURIComponent(body.family_ids[0]) });
+      if (name === 'notify' && body.action === 'rejected') return Promise.resolve({ sent: 0 });
+      if (name === 'notify') return Promise.reject(said('Emails aren\'t sent from ' + DEMO.NAME + '. In your own camp, this emails the families.'));
+      return Promise.reject(said('Imports are turned off in ' + DEMO.NAME + '. In your own camp, Camp Flow reports are imported here.'));
+    }
     return sb.auth.getSession().then(function (r) {
       var tok = r.data.session && r.data.session.access_token;
       return fetch(cfg.supabaseUrl + '/functions/v1/' + name + (opts && opts.query ? opts.query : ''), {
@@ -55,22 +64,40 @@
       S.user = s.user;
       return sb.rpc('my_access').then(function (res) {
         S.access = must(res);
-        if (!S.access.length) return showSignIn('Your account (' + S.user.email + ') has not been given access yet. Ask the camp director to add you.');
+        var real = S.access.length;
+        // Everyone can open Camp Test Site, as its director.
+        S.access.push({ camp_id: DEMO.CAMP, camp_name: DEMO.NAME, role: 'director', session_id: null, bunk_id: null });
         var saved = localStorage.getItem('camp');
+        if (!real && saved !== DEMO.CAMP) return showNoAccess();
         pickCamp(S.access.some(function (a) { return a.camp_id === saved; }) ? saved : S.access[0].camp_id);
       });
     }).catch(fail);
   }
 
+  function showNoAccess() {
+    $top.hidden = true;
+    $main.innerHTML = '<div class="card signin"><h1>Camp roster</h1><p>Your account (' + esc(S.user.email) + ') has not been given access to a camp yet. Ask your camp director to add you.</p>' +
+      '<p>Meanwhile, you can explore <strong>' + DEMO.NAME + '</strong>, a practice camp with 500 sample campers. Try anything: nothing you do there is saved.</p>' +
+      '<p class="row"><button class="primary" id="godemo">Explore ' + DEMO.NAME + '</button><button id="out2">Sign out</button></p></div>';
+    document.getElementById('godemo').onclick = function () { pickCamp(DEMO.CAMP); };
+    document.getElementById('out2').onclick = function () { DEMO.clear(S.user.email); sb.auth.signOut().then(function () { showSignIn(); }); };
+  }
+
   function pickCamp(id) {
+    var toDemo = id === DEMO.CAMP;
+    if (S.demo && !toDemo) DEMO.clear(S.user.email);   // leaving the test camp wipes it
+    S.demo = toDemo;
+    DB = toDemo ? DEMO.client(S.user.email) : sb;
+    if (toDemo) try { sessionStorage.setItem('roster-demo-current', S.user.email); } catch (e) { }
+    S.roster = null; S.rf = null; S.filters = { q: '', session: '', missing: '', sort: 'name' };
     localStorage.setItem('camp', id);
     S.roles = S.access.filter(function (a) { return a.camp_id === id; }).map(function (a) { return a.role; });
     S.myBunks = S.access.filter(function (a) { return a.camp_id === id && a.bunk_id; }).map(function (a) { return a.bunk_id; });
     S.status = null;
     Promise.all([
-      sb.from('camps').select('*').eq('id', id).single(),
-      sb.from('requirements').select('*').eq('camp_id', id).order('sort'),
-      sb.from('sessions').select('*').eq('camp_id', id).order('starts_on', { nullsFirst: false }).order('name')
+      DB.from('camps').select('*').eq('id', id).single(),
+      DB.from('requirements').select('*').eq('camp_id', id).order('sort'),
+      DB.from('sessions').select('*').eq('camp_id', id).order('starts_on', { nullsFirst: false }).order('name')
     ]).then(function (r) {
       S.camp = must(r[0]); S.reqs = must(r[1]); S.sessions = must(r[2]);
       drawTop(); route();
@@ -92,9 +119,18 @@
     $top.hidden = false;
     $top.innerHTML = '<div class="in"><span class="brand">' + esc(S.camp.name) + '</span><nav class="tabs" aria-label="Sections">' +
       PAGES.filter(function (p) { return p[2](); }).map(function (p) { return '<a href="#' + p[0] + '" data-p="' + p[0] + '">' + p[1] + '</a>'; }).join('') +
-      '</nav><span class="who">' + (camps.length > 1 ? '<select id="campsel" aria-label="Camp">' + camps.map(function (c) { return '<option value="' + c.id + '"' + (c.id === S.camp.id ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') + '</select>' : '') +
+      '</nav><span class="who">' + (camps.length > 1 ? '<select id="campsel" aria-label="Camp">' + camps.map(function (c) { return '<option value="' + c.id + '"' + (c.id === S.camp.id ? ' selected' : '') + '>' + esc(c.name) + (c.id === DEMO.CAMP ? ' (practice)' : '') + '</option>'; }).join('') + '</select>' : '') +
       esc(S.user.email) + ' · ' + S.roles.map(function (r) { return ROLE_NAMES[r]; }).join(', ') + ' <button id="out">Sign out</button></span></div>';
-    document.getElementById('out').onclick = function () { sb.auth.signOut().then(function () { location.hash = ''; showSignIn(); }); };
+    document.getElementById('out').onclick = function () { DEMO.clear(S.user.email); sb.auth.signOut().then(function () { location.hash = ''; showSignIn(); }); };
+    var bar = document.getElementById('demobar');
+    if (S.demo) {
+      var mine = S.access.filter(function (a) { return a.camp_id !== DEMO.CAMP; });
+      bar.hidden = false;
+      bar.innerHTML = '<div class="in"><span><strong>You\'re in ' + DEMO.NAME + ', a practice camp.</strong> Try anything: your changes stay only while you\'re here, and are wiped when you leave. No emails are sent and nothing reaches families.</span>' +
+        '<span class="row"><button id="demoreset">Start over</button>' + (mine.length ? '<button class="primary" id="demoleave">Go to my camp</button>' : '') + '</span></div>';
+      document.getElementById('demoreset').onclick = function () { if (!confirm('Start ' + DEMO.NAME + ' over? Your practice changes will be wiped.')) return; DEMO.clear(S.user.email); pickCamp(DEMO.CAMP); toast(DEMO.NAME + ' is fresh again'); };
+      var lv = document.getElementById('demoleave'); if (lv) lv.onclick = function () { location.hash = ''; pickCamp(mine[0].camp_id); };
+    } else { bar.hidden = true; bar.innerHTML = ''; }
     var cs = document.getElementById('campsel'); if (cs) cs.onchange = function () { pickCamp(cs.value); };
   }
 
@@ -149,7 +185,7 @@
       'enrollments(sessions(name)), bunk_assignments(bunks(name)), camper_health(alert)';
     var out = [];
     var page = function (n) {
-      return sb.from('campers').select(sel).eq('camp_id', S.camp.id).eq('active', true).order('last_name').order('first_name').range(n * 1000, n * 1000 + 999)
+      return DB.from('campers').select(sel).eq('camp_id', S.camp.id).eq('active', true).order('last_name').order('first_name').range(n * 1000, n * 1000 + 999)
         .then(function (r) { var rows = must(r); out = out.concat(rows); return rows.length === 1000 ? page(n + 1) : out; });
     };
     var status = has('director', 'office', 'infirmary') ? loadStatus().catch(function () { return []; }) : Promise.resolve([]);
@@ -274,7 +310,7 @@
   // ---------- Forms dashboard ----------
   function loadStatus(force) {
     if (S.status && !force) return Promise.resolve(S.status);
-    return sb.rpc('form_status', { p_camp: S.camp.id }).then(function (r) { S.status = must(r); return S.status; });
+    return DB.rpc('form_status', { p_camp: S.camp.id }).then(function (r) { S.status = must(r); return S.status; });
   }
   var activeReqs = function () { return S.reqs.filter(function (r) { return r.active; }); };
 
@@ -310,7 +346,7 @@
     });
     html += '</div>';
     if (has('director', 'infirmary')) {
-      var toReview = reqs.filter(function (r) { return r.kind !== 'sfsp'; }).map(function (r) { return [r, all.filter(function (x) { return x.statuses[r.key] === 'received'; }).length]; }).filter(function (p) { return p[1]; });
+      var toReview = reqs.filter(function (r) { return r.kind !== 'sfsp' && r.kind !== 'consent'; }).map(function (r) { return [r, all.filter(function (x) { return x.statuses[r.key] === 'received'; }).length]; }).filter(function (p) { return p[1]; });
       if (toReview.length) html += '<div class="card"><strong>To review:</strong> ' + toReview.map(function (p) { return '<button data-review="' + esc(p[0].key) + '">' + esc(p[0].label) + ' (' + p[1] + ')</button>'; }).join(' ') + (f.review ? ' <button data-review="">Show all</button>' : '') + '</div>';
     }
     html += '<div class="filters"><label>Search<input type="search" id="q" value="' + esc(f.q) + '" placeholder="Camper or family name"></label>' +
@@ -370,15 +406,15 @@
   function camperPage(id) {
     [].forEach.call($top.querySelectorAll('nav a'), function (a) { a.classList.toggle('on', a.dataset.p === 'forms'); });
     $main.innerHTML = '<p class="muted">Loading…</p>';
-    sb.from('campers').select('*').eq('id', id).single().then(function (r) {
+    DB.from('campers').select('*').eq('id', id).single().then(function (r) {
       var c = must(r);
       return Promise.all([
-        sb.from('families').select('*').eq('id', c.family_id).single(),
-        sb.from('submissions').select('*').eq('family_id', c.family_id).order('created_at', { ascending: false }),
-        sb.from('camper_health').select('*').eq('camper_id', id).maybeSingle(),
-        sb.from('campers').select('id, first_name, last_name, active').eq('family_id', c.family_id).eq('active', true),
+        DB.from('families').select('*').eq('id', c.family_id).single(),
+        DB.from('submissions').select('*').eq('family_id', c.family_id).order('created_at', { ascending: false }),
+        DB.from('camper_health').select('*').eq('camper_id', id).maybeSingle(),
+        DB.from('campers').select('id, first_name, last_name, active').eq('family_id', c.family_id).eq('active', true),
         loadStatus(),
-        has('director', 'office') ? sb.from('reminder_log').select('*').eq('family_id', c.family_id).order('sent_at', { ascending: false }).limit(10) : Promise.resolve({ data: [] })
+        has('director', 'office') ? DB.from('reminder_log').select('*').eq('family_id', c.family_id).order('sent_at', { ascending: false }).limit(10) : Promise.resolve({ data: [] })
       ]).then(function (x) { drawCamper(c, must(x[0]), must(x[1]), must(x[2]), must(x[3]), must(x[5])); });
     }).catch(fail);
   }
@@ -444,7 +480,7 @@
       '<dt>Camp Flow</dt><dd><a href="https://app.campflow.org/families/' + esc(fam.external_id.replace(/^campflow:/, '')) + '" target="_blank" rel="noopener">Family #' + esc(fam.external_id.replace(/^campflow:/, '')) + '</a></dd></dl></div>';
     if (has('director', 'office')) {
       html += '<div class="card noprint"><h3 style="margin-top:0">Emails to this family</h3>' +
-        '<div class="row"><button id="sendnow">Send reminder now</button><button id="copylink">Copy family link</button></div>' +
+        '<div class="row"><button id="sendnow">Send reminder now</button><button id="copylink">' + (S.demo ? 'Open family page (practice)' : 'Copy family link') + '</button></div>' +
         '<label class="field" style="margin-top:12px">Pause automatic reminders until<input type="date" id="pause" value="' + esc(fam.reminders_paused_until || '') + '"></label>' +
         '<label class="field">Note (for example, "Mother called, sending Friday")<input type="text" id="pnote" value="' + esc(fam.reminder_note || '') + '"></label><button id="savepause">Save</button>' +
         (reminders.length ? '<h4>Sent</h4><ul class="small">' + reminders.map(function (l) { return '<li>' + esc(when(l.sent_at)) + ' · ' + esc(l.kind) + (l.error ? ' · <span style="color:var(--bad-ink)">failed</span>' : '') + '</li>'; }).join('') + '</ul>' : '<p class="small muted">No emails sent yet.</p>') + '</div>';
@@ -456,19 +492,19 @@
     [].forEach.call($main.querySelectorAll('[data-file]'), function (b) {
       b.onclick = function () {
         var w = window.open('', '_blank');
-        sb.rpc('log_file_view', { p_submission: b.dataset.sub, p_path: b.dataset.file })
-          .then(function (r) { must(r); return sb.storage.from('forms').createSignedUrl(b.dataset.file, 120); })
+        DB.rpc('log_file_view', { p_submission: b.dataset.sub, p_path: b.dataset.file })
+          .then(function (r) { must(r); return DB.storage.from('forms').createSignedUrl(b.dataset.file, 120); })
           .then(function (r) { w.location = must(r).signedUrl; }).catch(function (e) { w.close(); fail(e); });
       };
     });
     [].forEach.call($main.querySelectorAll('[data-approve]'), function (b) {
-      b.onclick = function () { sb.from('submissions').update({ status: 'approved', reviewed_by: S.user.email, reviewed_at: new Date().toISOString() }).eq('id', b.dataset.approve).then(must).then(reload).catch(fail); };
+      b.onclick = function () { DB.from('submissions').update({ status: 'approved', reviewed_by: S.user.email, reviewed_at: new Date().toISOString() }).eq('id', b.dataset.approve).then(must).then(reload).catch(fail); };
     });
     [].forEach.call($main.querySelectorAll('[data-reject]'), function (b) {
       b.onclick = function () {
         var why = prompt('What should the family fix? They will see this and get an email with their link.', 'The photo is hard to read. Please send a clearer one.');
         if (!why) return;
-        sb.from('submissions').update({ status: 'rejected', reject_reason: why, reviewed_by: S.user.email, reviewed_at: new Date().toISOString() }).eq('id', b.dataset.reject).then(must)
+        DB.from('submissions').update({ status: 'rejected', reject_reason: why, reviewed_by: S.user.email, reviewed_at: new Date().toISOString() }).eq('id', b.dataset.reject).then(must)
           .then(function () { return fn('notify', { camp: S.camp.id, action: 'rejected', family_ids: [c.family_id] }).catch(function () { toast('Saved, but the email did not send.'); }); })
           .then(reload).catch(fail);
       };
@@ -482,26 +518,27 @@
         b.disabled = true;
         Promise.all(files.map(function (f, i) {
           var path = S.camp.id + '/' + c.family_id + '/' + batch + '/' + i + '-' + f.name.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/\.{2,}/g, '.');
-          return sb.storage.from('forms').upload(path, f, { contentType: f.type }).then(function (res) { must(res); return { path: path, name: f.name, type: f.type, size: f.size }; });
+          return DB.storage.from('forms').upload(path, f, { contentType: f.type }).then(function (res) { must(res); return { path: path, name: f.name, type: f.type, size: f.size }; });
         })).then(function (saved) {
-          return sb.from('submissions').insert({ camp_id: S.camp.id, requirement_id: r.id, family_id: c.family_id, camper_id: r.scope === 'camper' ? c.id : null, status: 'received', files: saved, answers: { paper: true }, submitted_by: S.user.email.toLowerCase() });
+          return DB.from('submissions').insert({ camp_id: S.camp.id, requirement_id: r.id, family_id: c.family_id, camper_id: r.scope === 'camper' ? c.id : null, status: 'received', files: saved, answers: { paper: true }, submitted_by: S.user.email.toLowerCase() });
         }).then(must).then(function () { toast('Paper form saved'); reload(); }).catch(function (e) { b.disabled = false; fail(e); });
       };
     });
     var sa = document.getElementById('savealert');
     if (sa) sa.onclick = function () {
-      sb.from('camper_health').upsert({ camper_id: c.id, camp_id: S.camp.id, alert: document.getElementById('alert').value.trim() || null, updated_by: S.user.email, updated_at: new Date().toISOString() }).then(must).then(function () { toast('Alert saved'); }).catch(fail);
+      DB.from('camper_health').upsert({ camper_id: c.id, camp_id: S.camp.id, alert: document.getElementById('alert').value.trim() || null, updated_by: S.user.email, updated_at: new Date().toISOString() }).then(must).then(function () { toast('Alert saved'); }).catch(fail);
     };
     var svn = document.getElementById('savenames');
     if (svn) svn.onclick = function () {
-      sb.from('campers').update({ legal_first: document.getElementById('lfirst').value.trim() || null, legal_last: document.getElementById('llast').value.trim() || null, hebrew_name: document.getElementById('hname').value.trim() || null, staff_child: document.getElementById('staffc').checked }).eq('id', c.id).then(must).then(function () { toast('Saved'); }).catch(fail);
+      DB.from('campers').update({ legal_first: document.getElementById('lfirst').value.trim() || null, legal_last: document.getElementById('llast').value.trim() || null, hebrew_name: document.getElementById('hname').value.trim() || null, staff_child: document.getElementById('staffc').checked }).eq('id', c.id).then(must).then(function () { toast('Saved'); }).catch(fail);
     };
     var sn = document.getElementById('sendnow');
     if (sn) sn.onclick = function () { sn.disabled = true; fn('notify', { camp: S.camp.id, action: 'remind', family_ids: [c.family_id], force: true }).then(function (r) { toast(r.sent ? 'Reminder sent' : 'Nothing sent: ' + (r.reasons && r.reasons[0] || 'nothing missing')); camperPage(c.id); }).catch(function (e) { sn.disabled = false; fail(e); }); };
     var cl = document.getElementById('copylink');
-    if (cl) cl.onclick = function () { fn('notify', { camp: S.camp.id, action: 'link', family_ids: [c.family_id] }).then(function (r) { return navigator.clipboard.writeText(r.link).then(function () { toast('Link copied. It opens this family\'s forms; share it only with them.'); }, function () { prompt('Family link:', r.link); }); }).catch(fail); };
+    if (cl && S.demo) cl.onclick = function () { window.open('/portal.html?demo=' + encodeURIComponent(c.family_id), '_blank'); };
+    else if (cl) cl.onclick = function () { fn('notify', { camp: S.camp.id, action: 'link', family_ids: [c.family_id] }).then(function (r) { return navigator.clipboard.writeText(r.link).then(function () { toast('Link copied. It opens this family\'s forms; share it only with them.'); }, function () { prompt('Family link:', r.link); }); }).catch(fail); };
     var sp = document.getElementById('savepause');
-    if (sp) sp.onclick = function () { sb.from('families').update({ reminders_paused_until: document.getElementById('pause').value || null, reminder_note: document.getElementById('pnote').value.trim() || null }).eq('id', c.family_id).then(must).then(function () { toast('Saved'); S.status = null; }).catch(fail); };
+    if (sp) sp.onclick = function () { DB.from('families').update({ reminders_paused_until: document.getElementById('pause').value || null, reminder_note: document.getElementById('pnote').value.trim() || null }).eq('id', c.family_id).then(must).then(function () { toast('Saved'); S.status = null; }).catch(fail); };
   }
 
   // ---------- Bunks ----------
@@ -513,9 +550,9 @@
     S.bunkSession = S.bunkSession && sessions.some(function (s) { return s.id === S.bunkSession; }) ? S.bunkSession : sessions[0].id;
     var canEdit = has('director', 'office', 'head_counselor');
     Promise.all([
-      sb.from('bunks').select('*').eq('session_id', S.bunkSession).order('sort').order('name'),
-      sb.from('enrollments').select('camper_id, campers(id, first_name, last_name, grade, active)').eq('session_id', S.bunkSession),
-      sb.from('bunk_assignments').select('bunk_id, camper_id, bunks!inner(session_id)').eq('bunks.session_id', S.bunkSession)
+      DB.from('bunks').select('*').eq('session_id', S.bunkSession).order('sort').order('name'),
+      DB.from('enrollments').select('camper_id, campers(id, first_name, last_name, grade, active)').eq('session_id', S.bunkSession),
+      DB.from('bunk_assignments').select('bunk_id, camper_id, bunks!inner(session_id)').eq('bunks.session_id', S.bunkSession)
     ]).then(function (r) {
       var bunks = must(r[0]), enrolled = must(r[1]).map(function (e) { return e.campers; }).filter(function (c) { return c && c.active; }), asg = must(r[2]);
       enrolled.sort(function (a, b) { return (a.last_name + a.first_name).localeCompare(b.last_name + b.first_name); });
@@ -533,10 +570,10 @@
       var nb = document.getElementById('nb');
       if (nb) nb.onsubmit = function (e) {
         e.preventDefault(); var name = document.getElementById('nbn').value.trim(); if (!name) return;
-        sb.from('bunks').insert({ camp_id: S.camp.id, session_id: S.bunkSession, name: name, sort: bunks.length }).select().single().then(function (r) { S.bunkSel = must(r).id; bunksPage(); }).catch(fail);
+        DB.from('bunks').insert({ camp_id: S.camp.id, session_id: S.bunkSession, name: name, sort: bunks.length }).select().single().then(function (r) { S.bunkSel = must(r).id; bunksPage(); }).catch(fail);
       };
       if (!S.bunkSel) { document.getElementById('bunkbody').innerHTML = '<div class="card">No bunks in this session yet.</div>'; return; }
-      sb.rpc('bunk_list', { p_bunk: S.bunkSel }).then(function (r) {
+      DB.rpc('bunk_list', { p_bunk: S.bunkSel }).then(function (r) {
         var list = must(r), bunk = bunks.find(function (b) { return b.id === S.bunkSel; });
         var unplaced = enrolled.filter(function (c) { return !placed[c.id]; });
         var h = '<div class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0">' + esc(bunk.name) + ' <span class="muted small">' + list.length + ' campers</span></h2><button class="noprint" data-print>Print</button></div>' +
@@ -545,12 +582,12 @@
           (list.length ? '' : '<tr><td colspan="4" class="muted">No campers yet.</td></tr>') + '</tbody></table></div>';
         if (canEdit) h += '<div class="card noprint"><h3 style="margin-top:0">Add campers</h3>' + (unplaced.length ? '<div class="row">' + unplaced.map(function (c) { return '<label class="check" style="width:230px;margin:2px 0"><input type="checkbox" value="' + c.id + '" class="addc"><span>' + esc(c.first_name + ' ' + c.last_name) + (c.grade ? ' <span class="muted small">' + esc(c.grade) + '</span>' : '') + '</span></label>'; }).join('') + '</div><button class="primary" id="addsel" style="margin-top:8px">Add to ' + esc(bunk.name) + '</button>' : '<p class="muted">Everyone in this session is in a bunk.</p>') + '</div>';
         document.getElementById('bunkbody').innerHTML = h;
-        [].forEach.call($main.querySelectorAll('[data-out]'), function (b) { b.onclick = function () { sb.from('bunk_assignments').delete().eq('bunk_id', S.bunkSel).eq('camper_id', b.dataset.out).then(must).then(bunksPage).catch(fail); }; });
+        [].forEach.call($main.querySelectorAll('[data-out]'), function (b) { b.onclick = function () { DB.from('bunk_assignments').delete().eq('bunk_id', S.bunkSel).eq('camper_id', b.dataset.out).then(must).then(bunksPage).catch(fail); }; });
         var add = document.getElementById('addsel');
         if (add) add.onclick = function () {
           var ids = [].map.call($main.querySelectorAll('.addc:checked'), function (i) { return i.value; });
           if (!ids.length) return toast('Tick the campers to add.');
-          sb.from('bunk_assignments').insert(ids.map(function (id) { return { bunk_id: S.bunkSel, camper_id: id, camp_id: S.camp.id, assigned_by: S.user.email }; })).then(must).then(bunksPage).catch(fail);
+          DB.from('bunk_assignments').insert(ids.map(function (id) { return { bunk_id: S.bunkSel, camper_id: id, camp_id: S.camp.id, assigned_by: S.user.email }; })).then(must).then(bunksPage).catch(fail);
         };
       }).catch(fail);
     }).catch(fail);
@@ -558,7 +595,7 @@
 
   function myBunkPage() {
     $main.innerHTML = '<p class="muted">Loading…</p>';
-    Promise.all(S.myBunks.map(function (id) { return Promise.all([sb.from('bunks').select('name').eq('id', id).single(), sb.rpc('bunk_list', { p_bunk: id })]); })).then(function (all) {
+    Promise.all(S.myBunks.map(function (id) { return Promise.all([DB.from('bunks').select('name').eq('id', id).single(), DB.rpc('bunk_list', { p_bunk: id })]); })).then(function (all) {
       $main.innerHTML = all.map(function (x) {
         var b = must(x[0]), list = must(x[1]);
         return '<div class="card"><div class="row" style="justify-content:space-between"><h1 style="margin:0">' + esc(b.name) + '</h1><button class="noprint" data-print>Print</button></div><p class="muted">' + list.length + ' campers</p>' +
@@ -571,8 +608,8 @@
   function moneyPage() {
     $main.innerHTML = '<p class="muted">Loading…</p>';
     Promise.all([
-      sb.from('finance_accounts').select('*, families(id, last_name, father_first, mother_first, external_id, active)'),
-      sb.from('finance_entries').select('*').order('occurred_on', { ascending: false }).limit(2000)
+      DB.from('finance_accounts').select('*, families(id, last_name, father_first, mother_first, external_id, active)'),
+      DB.from('finance_entries').select('*').order('occurred_on', { ascending: false }).limit(2000)
     ]).then(function (r) {
       var acc = must(r[0]).filter(function (a) { return a.families && a.families.active; }), entries = must(r[1]);
       acc.sort(function (a, b) { return a.families.last_name.localeCompare(b.families.last_name); });
@@ -600,7 +637,7 @@
   // ---------- Imports ----------
   function importsPage() {
     $main.innerHTML = '<p class="muted">Loading…</p>';
-    sb.from('import_runs').select('*').eq('camp_id', S.camp.id).order('created_at', { ascending: false }).limit(50).then(function (r) {
+    DB.from('import_runs').select('*').eq('camp_id', S.camp.id).order('created_at', { ascending: false }).limit(50).then(function (r) {
       var runs = must(r);
       $main.innerHTML = '<h1>Imports</h1><p class="muted">Camp Flow\'s scheduled report emails are imported automatically. To import one by hand, download it from Camp Flow and choose it here.</p>' +
         '<div class="card"><input type="file" id="xf" accept=".xlsx"> <button class="primary" id="xb">Import</button><div id="xr"></div></div>' +
@@ -621,9 +658,9 @@
   function settingsPage() {
     $main.innerHTML = '<p class="muted">Loading…</p>';
     Promise.all([
-      sb.from('staff').select('*').eq('camp_id', S.camp.id).order('role').order('email'),
-      sb.from('bunks').select('id, name, session_id').eq('camp_id', S.camp.id).order('name'),
-      sb.rpc('sfsp_connection', { p_camp: S.camp.id })
+      DB.from('staff').select('*').eq('camp_id', S.camp.id).order('role').order('email'),
+      DB.from('bunks').select('id, name, session_id').eq('camp_id', S.camp.id).order('name'),
+      DB.rpc('sfsp_connection', { p_camp: S.camp.id })
     ]).then(function (r) {
       var staff = must(r[0]), bunks = must(r[1]), conn = must(r[2]) || {}, st = S.camp.settings || {};
       var sname = function (id) { var s = S.sessions.find(function (x) { return x.id === id; }); return s ? s.name : ''; };
@@ -666,32 +703,32 @@
         var role = sr.value, bunk = role === 'counselor' ? document.getElementById('sbk').value : '';
         var b = bunks.find(function (x) { return x.id === bunk; });
         if (role === 'counselor' && !b) return toast('Choose the counselor\'s bunk.');
-        sb.from('staff').insert({ camp_id: S.camp.id, email: document.getElementById('se').value.trim().toLowerCase(), name: document.getElementById('sn').value.trim() || null, role: role,
+        DB.from('staff').insert({ camp_id: S.camp.id, email: document.getElementById('se').value.trim().toLowerCase(), name: document.getElementById('sn').value.trim() || null, role: role,
           session_id: b ? b.session_id : (role === 'head_counselor' ? document.getElementById('ss').value || null : null), bunk_id: b ? b.id : null, added_by: S.user.email })
           .then(must).then(function () { toast('Added. They can sign in now.'); settingsPage(); }).catch(fail);
       };
-      [].forEach.call($main.querySelectorAll('[data-rm]'), function (b) { b.onclick = function () { if (confirm('Remove this access?')) sb.from('staff').delete().eq('id', b.dataset.rm).then(must).then(settingsPage).catch(fail); }; });
+      [].forEach.call($main.querySelectorAll('[data-rm]'), function (b) { b.onclick = function () { if (confirm('Remove this access?')) DB.from('staff').delete().eq('id', b.dataset.rm).then(must).then(settingsPage).catch(fail); }; });
       document.getElementById('campf').onsubmit = function (e) {
         e.preventDefault();
         var s = Object.assign({}, S.camp.settings, { deadline: document.getElementById('dl').value || null, reply_to: document.getElementById('rt').value.trim() || null, phone: document.getElementById('ph').value.trim() || null, welcome_enabled: document.getElementById('welcome').checked, reminders_enabled: document.getElementById('rem').checked });
-        sb.from('camps').update({ settings: s }).eq('id', S.camp.id).then(must).then(function () { S.camp.settings = s; toast('Saved'); }).catch(fail);
+        DB.from('camps').update({ settings: s }).eq('id', S.camp.id).then(must).then(function () { S.camp.settings = s; toast('Saved'); }).catch(fail);
       };
-      [].forEach.call($main.querySelectorAll('[data-req]'), function (cb) { cb.onchange = function () { sb.from('requirements').update({ active: cb.checked }).eq('id', cb.dataset.req).then(must).then(function () { S.reqs.find(function (q) { return q.id === cb.dataset.req; }).active = cb.checked; S.status = null; toast('Saved'); }).catch(fail); }; });
+      [].forEach.call($main.querySelectorAll('[data-req]'), function (cb) { cb.onchange = function () { DB.from('requirements').update({ active: cb.checked }).eq('id', cb.dataset.req).then(must).then(function () { S.reqs.find(function (q) { return q.id === cb.dataset.req; }).active = cb.checked; S.status = null; toast('Saved'); }).catch(fail); }; });
       var disc = document.getElementById('disc');
-      if (disc) disc.onchange = function () { var c2 = Object.assign({}, consent.config, { accept_disclosure: disc.checked ? 'Medical Authorization' : null }); sb.from('requirements').update({ config: c2 }).eq('id', consent.id).then(must).then(function () { consent.config = c2; S.status = null; toast('Saved'); }).catch(fail); };
+      if (disc) disc.onchange = function () { var c2 = Object.assign({}, consent.config, { accept_disclosure: disc.checked ? 'Medical Authorization' : null }); DB.from('requirements').update({ config: c2 }).eq('id', consent.id).then(must).then(function () { consent.config = c2; S.status = null; toast('Saved'); }).catch(fail); };
       document.getElementById('sfspf').onsubmit = function (e) {
         e.preventDefault();
-        sb.rpc('set_sfsp_connection', { p_camp: S.camp.id, p_sfsp_camp_id: document.getElementById('sc').value, p_form_url: document.getElementById('su').value, p_secret: document.getElementById('sk').value || null }).then(must).then(function () { toast('Saved'); settingsPage(); }).catch(fail);
+        DB.rpc('set_sfsp_connection', { p_camp: S.camp.id, p_sfsp_camp_id: document.getElementById('sc').value, p_form_url: document.getElementById('su').value, p_secret: document.getElementById('sk').value || null }).then(must).then(function () { toast('Saved'); settingsPage(); }).catch(fail);
       };
       [].forEach.call($main.querySelectorAll('[data-sstart],[data-send]'), function (inp) {
         inp.onchange = function () {
           var id = inp.dataset.sstart || inp.dataset.send, patch = {}; patch[inp.dataset.sstart ? 'starts_on' : 'ends_on'] = inp.value || null;
-          sb.from('sessions').update(patch).eq('id', id).then(must).then(function () { var x = S.sessions.find(function (q) { return q.id === id; }); Object.assign(x, patch); S.status = null; toast('Saved'); }).catch(fail);
+          DB.from('sessions').update(patch).eq('id', id).then(must).then(function () { var x = S.sessions.find(function (q) { return q.id === id; }); Object.assign(x, patch); S.status = null; toast('Saved'); }).catch(fail);
         };
       });
       document.getElementById('sessf').onsubmit = function (e) {
         e.preventDefault(); var n = document.getElementById('sesn').value.trim(); if (!n) return;
-        sb.from('sessions').insert({ camp_id: S.camp.id, name: n, external_name: n }).select().single().then(function (r) { S.sessions.push(must(r)); settingsPage(); }).catch(fail);
+        DB.from('sessions').insert({ camp_id: S.camp.id, name: n, external_name: n }).select().single().then(function (r) { S.sessions.push(must(r)); settingsPage(); }).catch(fail);
       };
     }).catch(fail);
   }
@@ -699,7 +736,7 @@
   // ---------- Activity (director) ----------
   function activityPage() {
     $main.innerHTML = '<p class="muted">Loading…</p>';
-    sb.from('audit_log').select('*').eq('camp_id', S.camp.id).order('at', { ascending: false }).limit(300).then(function (r) {
+    DB.from('audit_log').select('*').eq('camp_id', S.camp.id).order('at', { ascending: false }).limit(300).then(function (r) {
       var rows = must(r);
       var what = function (x) {
         if (x.entity === 'file') return 'Opened a form file';
@@ -714,6 +751,14 @@
         rows.map(function (x) { return '<tr><td class="small">' + esc(when(x.at)) + '</td><td class="small">' + esc(x.actor) + '</td><td>' + esc(what(x)) + '</td></tr>'; }).join('') + '</tbody></table></div>';
     }).catch(fail);
   }
+
+  // A practice family page (portal.html?demo=...) opened from this tab sends its forms here, so they show up in the test camp.
+  try {
+    new BroadcastChannel('roster-demo').onmessage = function (e) {
+      var m = e.data; if (!S.demo || !m || m.type !== 'submission' || m.email !== S.user.email) return;
+      DB.addSubmission(m.submission); S.status = null; S.roster = null; toast('A practice form came in from the family page'); route();
+    };
+  } catch (e) { }
 
   sb.auth.onAuthStateChange(function (ev) { if (ev === 'SIGNED_IN' && !S.camp) start(); });
   start();

@@ -16,6 +16,8 @@
   nav.tabs a.on { color: var(--accent-ink); background: var(--accent-soft); }
   .who { font-size: 14px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
   .who select { width: auto; padding: 4px 8px; }
+  .demobar { background: var(--warn-soft); color: var(--warn-ink); border-bottom: 1px solid var(--line); }
+  .demobar .in { max-width: 1280px; margin: 0 auto; padding: 10px 16px; display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; font-size: 15px; }
   main { max-width: 1280px; margin: 0 auto; padding: 20px 16px 64px; }
   .card { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
   .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
@@ -56,14 +58,17 @@
   details.msel[style*="margin-left:auto"] .msel-box { left: auto; right: 0; }
   button.sortbtn { all: unset; cursor: pointer; font-weight: 600; color: var(--muted); }
   button.sortbtn:focus-visible { outline: 3px solid var(--accent); }
-  @media print { header.top, .noprint { display: none !important; } .wrap { overflow: visible; border: 0; } table.grid { font-size: 11px; } body, .card { background: #fff; border: 0; } }
+  @media print { header.top, .demobar, .noprint { display: none !important; } .wrap { overflow: visible; border: 0; } table.grid { font-size: 11px; } body, .card { background: #fff; border: 0; } }
 </style>
 </head>
 <body>
 <header class="top" id="top" hidden></header>
+<div id="demobar" class="demobar" role="status" hidden></div>
 <main id="main"><p class="muted">Loading…</p></main>
 <script src="/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
+<script src="/demo-seed.js"></script>
+<script src="/demo-db.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

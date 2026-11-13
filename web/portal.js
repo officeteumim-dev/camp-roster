@@ -3,6 +3,15 @@
   'use strict';
   var cfg = window.ROSTER_CONFIG;
   var token = new URLSearchParams(location.search).get('t') || '';
+  // Camp Test Site: portal.html?demo=<family> shows that practice family's page from the test camp kept in this browser.
+  var demoFamily = new URLSearchParams(location.search).get('demo') || '';
+  var demo = null;
+  if (demoFamily && window.DemoDB) {
+    var demoEmail = ''; try { demoEmail = sessionStorage.getItem('roster-demo-current') || ''; } catch (e) { }
+    demo = window.DemoDB.client(demoEmail);
+    demo.email = demoEmail;
+    token = 'demo';
+  }
   var app = document.getElementById('app');
   var sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: false } });
   var state = { data: null, open: null, drafts: {} };
@@ -11,6 +20,17 @@
   var DONE = { approved: 1, received: 1, not_needed: 1 };
 
   function call(action, extra) {
+    if (demo) return new Promise(function (resolve, reject) {
+      if (action === 'view') { var v = demo.portalView(demoFamily); return v ? resolve(v) : reject(new Error('This practice family isn\'t in ' + window.DemoDB.NAME + ' any more.')); }
+      if (action === 'upload-urls') return resolve({ uploads: extra.files.map(function (f, i) { return Object.assign({ path: 'demo/' + i + '-' + f.name, token: 'demo' }, f); }) });
+      if (action === 'submit') {
+        var r = demo.submit(demoFamily, extra);
+        if (r.error) return reject(new Error(r.error));
+        try { new BroadcastChannel('roster-demo').postMessage({ type: 'submission', email: demo.email, submission: r.submission }); } catch (e) { }
+        return resolve(demo.portalView(demoFamily));
+      }
+      reject(new Error('Not available in the practice camp.'));
+    });
     return fetch(cfg.supabaseUrl + '/functions/v1/portal', {
       method: 'POST', headers: { 'Content-Type': 'application/json', apikey: cfg.supabaseAnonKey, Authorization: 'Bearer ' + cfg.supabaseAnonKey },
       body: JSON.stringify(Object.assign({ t: token, action: action }, extra || {}))
@@ -38,6 +58,7 @@
     d.family_requirements.forEach(function (r) { all.push(r.status); });
     d.campers.forEach(function (c) { c.requirements.forEach(function (r) { all.push(r.status); }); });
     var done = all.filter(function (s) { return DONE[s]; }).length;
+    if (d.demo) html += '<div class="demonote" role="status"><strong>Practice family page in ' + esc(d.camp.name) + '.</strong> This is what a family sees. Try anything: forms you send here show up in the test camp, but nothing is saved, files aren\'t kept, and the SFSP button opens the SFSP app\'s practice form.</div>';
     html += '<div class="hello"><p class="muted small">' + esc(d.camp.name) + '</p><h1>' + esc(parentsOf(d)) + '</h1>';
     html += '<p>' + (done === all.length ? 'Everything is in. Thank you!' : 'Here is what the camp still needs' + (d.camp.deadline ? ', by <strong>' + esc(fmtDate(d.camp.deadline)) + '</strong>' : '') + '. You can do a little at a time; your progress is saved.') + '</p>';
     html += '<div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="' + all.length + '" aria-valuenow="' + done + '" aria-label="Forms completed"><i style="width:' + (all.length ? Math.round(done / all.length * 100) : 0) + '%"></i></div>';
@@ -87,7 +108,7 @@
       if (r.status === 'not_needed') return '<p>Your family doesn\'t need this form: it is only for campers 18 and under.</p>';
       if (DONE[r.status]) return '<p>We have your SFSP form. Thank you.</p>';
       return state.data.sfsp_link
-        ? '<p>This form lets the camp claim free summer meals. It takes about 5 minutes and opens on the camp\'s meal-program site.</p><a class="btn primary" href="' + esc(state.data.sfsp_link) + '" target="_blank" rel="noopener">Fill in the SFSP form</a><p class="small muted">It will show as received here shortly after you send it.</p>'
+        ? '<p>This form lets the camp claim free summer meals. It takes about 5 minutes and opens on the camp\'s meal-program site.' + (state.data.demo ? ' In the practice camp, it opens the SFSP app\'s practice form.' : '') + '</p><a class="btn primary" href="' + esc(state.data.sfsp_link) + '" target="_blank" rel="noopener">Fill in the SFSP form</a><p class="small muted">It will show as received here shortly after you send it.</p>'
         : '<p>The camp will send you the link to this form separately.</p>';
     }
     if (r.kind === 'upload') {
@@ -163,6 +184,7 @@
       upload = call('upload-urls', { requirement_id: reqId, camper_id: camperId || null, files: local.map(function (f) { return { name: f.file.name, type: f.file.type, size: f.file.size }; }) })
         .then(function (res) {
           return Promise.all(res.uploads.map(function (u, i) {
+            if (demo) return { path: u.path, name: u.name, type: u.type, size: u.size };   // practice camp: files aren't kept
             return sb.storage.from('forms').uploadToSignedUrl(u.path, u.token, local[i].file, { contentType: u.type }).then(function (r) {
               if (r.error) throw new Error('A file did not upload. Please try again.');
               return { path: u.path, name: u.name, type: u.type, size: u.size };
@@ -205,7 +227,7 @@
     }
   });
 
-  if (!token) { app.innerHTML = '<h1>Link not complete</h1><p>Please open the link from the camp\'s email again.</p>'; return; }
+  if (!token && !demo) { app.innerHTML = '<h1>Link not complete</h1><p>Please open the link from the camp\'s email again.</p>'; return; }
   call('view').then(function (d) { state.data = d; render(); })
     .catch(function (e) { app.innerHTML = '<h1>We couldn\'t open your forms</h1><p>' + esc(e.message) + '</p>'; });
 })();

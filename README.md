@@ -28,11 +28,17 @@ For where setup stands, see `SETUP-STATUS.md`.
 
 Counselors see the infirmary's one-line alert (for example "Peanut allergy, EpiPen"), never the forms. Every opening of a form file is logged.
 
+## Camp Test Site
+
+Every signed-in person sees **Camp Test Site** in the camp list, as its director, and people with no camp yet are offered it. It's a practice camp with the same 500 campers and families as the SFSP app's Camp Test Site (`web/demo-seed.js` copies its generator; `tests/demo-seed.test.mjs` checks them against the SFSP app's own code). It never touches the database: everything is built in the browser (`web/demo-db.js`) and changes stay in that tab only until the person opens a real camp, signs out or taps **Start over**. A banner says so on every page. Emails, imports and file downloads are turned off there. "Open family page (practice)" shows what a family sees; forms sent from it appear in the test camp, and its SFSP button opens the SFSP app's practice form (`wgcamps.com/apply.html?demo=1`).
+
+When adding a feature, add its sample records to `build()` in `web/demo-db.js`, and any new database call to the stand-in there.
+
 ## Tests
 
 ```
 npm test                         # unit tests + database role tests (needs PostgreSQL installed locally)
-node tests/browser/check.mjs     # opens every page in Chrome with made-up data (needs Playwright)
+node tests/browser/check.mjs     # opens every page in Chrome with made-up data, and walks through Camp Test Site (needs Playwright)
 ```
 
 `tests/fixtures/make_fixtures.py` builds the made-up Camp Flow reports the tests use. Never commit a real report.
