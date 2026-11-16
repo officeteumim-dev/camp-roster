@@ -206,6 +206,31 @@ await demo.locator('#demoreset').click(); await demo.waitForTimeout(500);
 await demo.goto('http://app.test/#settings'); await demo.waitForTimeout(400);
 staffText = await demo.locator('main').innerText();
 if (/trial@example.com/.test(staffText)) errors.push('Start over did not wipe changes');
+// "Viewing as" each role.
+const nav = async () => (await demo.locator('nav.tabs a').allInnerTexts()).join(',');
+const viewAs = async k => { await demo.selectOption('#demorole', k); await demo.waitForTimeout(700); };
+await viewAs('counselor');
+if (await nav() !== 'My bunk') errors.push('counselor nav: ' + await nav());
+if (!/Bunk 1/.test(await demo.locator('main').innerText())) errors.push('counselor does not see Bunk 1');
+await demo.screenshot({ path: path.join(out, 'demo-as-counselor.png') });
+await viewAs('head-boys');
+if (await nav() !== 'Roster,Bunks') errors.push('head counselor nav: ' + await nav());
+await demo.goto('http://app.test/#roster'); await demo.waitForTimeout(800);
+const hc = await demo.locator('main p.small').first().innerText();
+if (!/250 of 250/.test(hc)) errors.push('head counselor roster: ' + hc);
+if (/Father phone/.test(await demo.locator('table.grid thead').innerText())) errors.push('head counselor sees parent phones');
+await demo.screenshot({ path: path.join(out, 'demo-as-head.png') });
+await viewAs('finance');
+if (!/Money/.test(await nav()) || /Forms/.test(await nav())) errors.push('finance nav: ' + await nav());
+await viewAs('office');
+await demo.goto('http://app.test/#forms'); await demo.waitForTimeout(800);
+await demo.locator('tr.click').first().click(); await demo.waitForTimeout(500);
+if (await demo.locator('[data-approve]').count()) errors.push('office sees Approve buttons');
+await viewAs('infirmary');
+if (/Settings|Money/.test(await nav())) errors.push('infirmary nav: ' + await nav());
+await viewAs('director');
+if (await nav() !== 'Roster,Forms,Bunks,Money,Imports,Settings,Activity') errors.push('director nav: ' + await nav());
+
 // A camper link from another camp says so instead of failing.
 await demo.goto('http://app.test/#camper/00000000-0000-0000-0000-000000000999'); await demo.waitForTimeout(400);
 if (!/Camper not found/.test(await demo.locator('main').innerText())) errors.push('missing camper page not handled');

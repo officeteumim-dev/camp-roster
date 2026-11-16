@@ -88,7 +88,12 @@
     if (S.demo && !toDemo) DEMO.clear(S.user.email);   // leaving the test camp wipes it
     S.demo = toDemo;
     DB = toDemo ? DEMO.client(S.user.email) : sb;
-    if (toDemo) try { sessionStorage.setItem('roster-demo-current', S.user.email); } catch (e) { }
+    if (toDemo) {
+      try { sessionStorage.setItem('roster-demo-current', S.user.email); } catch (e) { }
+      // In the test camp, the person can view the app as any role ("Viewing as" in the banner).
+      var r = DB.role(), entry = S.access.find(function (a) { return a.camp_id === DEMO.CAMP; });
+      entry.role = r.role; entry.session_id = r.session_id || null; entry.bunk_id = r.bunk_id || null;
+    }
     S.roster = null; S.rf = null; S.filters = { q: '', session: '', missing: '', sort: 'name' };
     // A camper page belongs to one camp: switching camps goes back to the list.
     if (S.camp && S.camp.id !== id && /^#camper\//.test(location.hash)) history.replaceState(null, '', location.pathname + '#roster');
@@ -122,14 +127,22 @@
     $top.innerHTML = '<div class="in"><span class="brand">' + esc(S.camp.name) + '</span><nav class="tabs" aria-label="Sections">' +
       PAGES.filter(function (p) { return p[2](); }).map(function (p) { return '<a href="#' + p[0] + '" data-p="' + p[0] + '">' + p[1] + '</a>'; }).join('') +
       '</nav><span class="who">' + (camps.length > 1 ? '<select id="campsel" aria-label="Camp">' + camps.map(function (c) { return '<option value="' + c.id + '"' + (c.id === S.camp.id ? ' selected' : '') + '>' + esc(c.name) + (c.id === DEMO.CAMP ? ' (practice)' : '') + '</option>'; }).join('') + '</select>' : '') +
-      esc(S.user.email) + ' · ' + S.roles.map(function (r) { return ROLE_NAMES[r]; }).join(', ') + ' <button id="out">Sign out</button></span></div>';
+      esc(S.user.email) + ' · ' + (S.demo ? esc(DB.role().label) : S.roles.map(function (r) { return ROLE_NAMES[r]; }).join(', ')) + ' <button id="out">Sign out</button></span></div>';
     document.getElementById('out').onclick = function () { DEMO.clear(S.user.email); sb.auth.signOut().then(function () { location.hash = ''; showSignIn(); }); };
     var bar = document.getElementById('demobar');
     if (S.demo) {
       var mine = S.access.filter(function (a) { return a.camp_id !== DEMO.CAMP; });
       bar.hidden = false;
+      var cur = DB.role();
       bar.innerHTML = '<div class="in"><span><strong>You\'re in ' + DEMO.NAME + ', a practice camp.</strong> Try anything: your changes stay only while you\'re here, and are wiped when you leave. No emails are sent and nothing reaches families.</span>' +
-        '<span class="row"><button id="demoreset">Start over</button>' + (mine.length ? '<button class="primary" id="demoleave">Go to my camp</button>' : '') + '</span></div>';
+        '<span class="row"><label class="viewas">Viewing as <select id="demorole">' + DEMO.ROLES.map(function (r) { return '<option value="' + r.key + '"' + (r.key === cur.key ? ' selected' : '') + '>' + esc(r.label) + '</option>'; }).join('') + '</select></label>' +
+        '<button id="demoreset">Start over</button>' + (mine.length ? '<button class="primary" id="demoleave">Go to my camp</button>' : '') + '</span></div>';
+      document.getElementById('demorole').onchange = function (e) {
+        var r = DB.setRole(e.target.value);
+        location.hash = '';
+        pickCamp(DEMO.CAMP);
+        toast('Now viewing as ' + r.label.toLowerCase() + '. You see only what they would.');
+      };
       document.getElementById('demoreset').onclick = function () { if (!confirm('Start ' + DEMO.NAME + ' over? Your practice changes will be wiped.')) return; DEMO.clear(S.user.email); pickCamp(DEMO.CAMP); toast(DEMO.NAME + ' is fresh again'); };
       var lv = document.getElementById('demoleave'); if (lv) lv.onclick = function () { location.hash = ''; pickCamp(mine[0].camp_id); };
     } else { bar.hidden = true; bar.innerHTML = ''; }
@@ -218,6 +231,7 @@
     var cols = ROSTER_COLS.filter(function (c) { return (saved || ROSTER_DEFAULT).indexOf(c[0]) >= 0; });
     // Columns a role can't see stay empty; hide them rather than show blanks.
     var anyVal = function (key) { var c = ROSTER_COLS.find(function (x) { return x[0] === key; }); return S.roster.some(function (r) { var v = c[2](r); return v !== '' && v != null; }); };
+    if (S.roster.length) { var shown = cols.filter(function (c) { return anyVal(c[0]); }); if (shown.length) cols = shown; }
     var all = S.roster;
     var uniq = function (fn) { var seen = {}; all.forEach(function (r) { [].concat(fn(r)).forEach(function (v) { if (v) seen[v] = 1; }); }); return Object.keys(seen); };
     var opts = {

@@ -115,6 +115,13 @@
       }
     });
 
+    // The sample counselor's bunk always shows what an alert looks like.
+    db.bunk_assignments.filter(function (a) { return a.bunk_id === 'bunk-boys-1'; }).slice(2, 4).forEach(function (a, i) {
+      if (db.camper_health.some(function (h) { return h.camper_id === a.camper_id; })) return;
+      var al = ALERTS[i * 2];
+      db.camper_health.push({ camper_id: a.camper_id, camp_id: CAMP, alert: al[1], allergies: /allerg/i.test(al[0]) ? al[0] : null, conditions: /allerg/i.test(al[0]) ? null : al[0], medications: null, updated_by: 'nurse@example.com', updated_at: now });
+    });
+
     // Money: a read-only copy of Camp Flow's figures, as in a real camp this season.
     db.families.forEach(function (fam, i) {
       var kids = db.campers.filter(function (c) { return c.family_id === fam.id; }).length;
@@ -239,11 +246,11 @@
       return { name: head.replace(/!inner$/, ''), inner: /!inner$/.test(head), sub: sub };
     });
   }
-  function embed(db, table, row, sel) {
+  function embed(db, table, row, sel, visible) {
     var out = Object.assign({}, row);
     topLevelRels(sel || '').forEach(function (r) {
       var rel = (RELS[table] || {})[r.name]; if (!rel) return;
-      var matches = db[rel[1]].filter(function (x) { return x[rel[3]] === row[rel[2]]; }).map(function (x) { return embed(db, rel[1], x, r.sub); });
+      var matches = db[rel[1]].filter(function (x) { return x[rel[3]] === row[rel[2]] && (!visible || visible(rel[1], x)); }).map(function (x) { return embed(db, rel[1], x, r.sub, visible); });
       out[r.name] = rel[0] === 'one' ? (matches[0] || null) : matches;
     });
     return out;
@@ -251,8 +258,54 @@
   var clone = function (x) { return JSON.parse(JSON.stringify(x)); };
   var newId = function (t) { return t + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); };
 
+  // ---------- Roles: "Viewing as" in the test camp. The same limits the database enforces in a real camp. ----------
+  var ROLES = [
+    { key: 'director', role: 'director', label: 'Director' },
+    { key: 'office', role: 'office', label: 'Office' },
+    { key: 'finance', role: 'finance', label: 'Finance' },
+    { key: 'infirmary', role: 'infirmary', label: 'Infirmary (medical staff)' },
+    { key: 'head-boys', role: 'head_counselor', label: 'Head counselor, Boys session', session_id: 'sess-boys' },
+    { key: 'head-girls', role: 'head_counselor', label: 'Head counselor, Girls session', session_id: 'sess-girls' },
+    { key: 'counselor', role: 'counselor', label: 'Counselor, Bunk 1', session_id: 'sess-boys', bunk_id: 'bunk-boys-1' }
+  ];
+  var ROLE_KEY = function (email) { return 'roster-demo-role:' + (email || ''); };
+  function savedRole(email) { var k = null; try { k = sessionStorage.getItem(ROLE_KEY(email)); } catch (e) { } return ROLES.find(function (r) { return r.key === k; }) || ROLES[0]; }
+
   function client(email) {
-    var key = KEY(email), db = null;
+    var key = KEY(email), db = null, me = savedRole(email);
+    var is = function () { for (var i = 0; i < arguments.length; i++) if (me.role === arguments[i]) return true; return false; };
+    var head = function (sessionId) { return me.role === 'head_counselor' && (!me.session_id || me.session_id === sessionId); };
+    var bunkSession = function (bunkId) { var b = db.bunks.find(function (x) { return x.id === bunkId; }); return b && b.session_id; };
+    var enrolledIn = function (camperId, test) { return db.enrollments.some(function (e) { return e.camper_id === camperId && test(e.session_id); }); };
+    var office = function () { return is('director', 'office', 'finance', 'infirmary'); };
+    function visible(table, row) {
+      switch (table) {
+        case 'camps': case 'sessions': case 'requirements': case 'bunks': return true;
+        case 'staff': return is('director');
+        case 'families': return office();
+        case 'campers': return office() || enrolledIn(row.id, head);
+        case 'enrollments': return office() || head(row.session_id);
+        case 'bunk_assignments': return is('director', 'office', 'infirmary') || head(bunkSession(row.bunk_id));
+        case 'submissions': case 'camper_health': return is('director', 'office', 'infirmary');
+        case 'sfsp_forms': case 'reminder_log': case 'import_runs': return is('director', 'office');
+        case 'finance_accounts': case 'finance_entries': return is('director', 'finance');
+        case 'audit_log': return is('director');
+        default: return false;
+      }
+    }
+    function writable(table, op, row) {
+      switch (table) {
+        case 'camps': case 'staff': return is('director');
+        case 'sessions': case 'requirements': case 'families': case 'campers': case 'enrollments': return is('director', 'office');
+        case 'bunks': return is('director', 'office') || head(row.session_id);
+        case 'bunk_assignments': return is('director', 'office') || head(bunkSession(row.bunk_id));
+        case 'submissions': return op === 'insert' ? is('director', 'office', 'infirmary') : op === 'delete' ? is('director') : is('director', 'infirmary');
+        case 'camper_health': return is('director', 'infirmary');
+        default: return false;
+      }
+    }
+    var refused = function () { return { data: null, error: { message: 'As ' + me.label.toLowerCase() + ', you can\'t change this. In a real camp the database blocks it too.', expected: true } }; };
+    var notAllowed = function () { var e = new Error('not allowed'); e.denied = true; throw e; };
     try { db = JSON.parse(sessionStorage.getItem(key) || 'null'); } catch (e) { db = null; }
     if (!db) db = build(email);
     var timer = null;
@@ -276,6 +329,7 @@
         if (!db[table]) return { data: null, error: { message: 'Not available in ' + NAME } };
         if (st.op === 'insert' || st.op === 'upsert') {
           var rows = [].concat(st.value).map(function (v) { return Object.assign({ created_at: new Date().toISOString() }, v); });
+          if (!rows.every(function (r) { return writable(table, 'insert', r); })) return refused();
           rows.forEach(function (r) {
             if (st.op === 'upsert') {
               var keyCols = table === 'camper_health' ? ['camper_id'] : table === 'finance_accounts' ? ['family_id'] : ['id'];
@@ -291,21 +345,23 @@
           return { data: st.one ? clone(rows[0]) : clone(rows), error: null };
         }
         if (st.op === 'update') {
-          var hits = db[table].filter(test);
+          var hits = db[table].filter(function (r) { return visible(table, r) && test(r); });
+          if (hits.length && !hits.every(function (r) { return writable(table, 'update', r); })) return refused();
           hits.forEach(function (r) { Object.assign(r, clone(st.value)); });
           if (['submissions', 'camper_health'].indexOf(table) >= 0 && hits.length) audit('update', table, table === 'submissions' ? { status: st.value.status } : null);
           save();
           return { data: clone(hits), error: null };
         }
         if (st.op === 'delete') {
-          var keep = db[table].filter(function (r) { return !test(r); });
+          if (db[table].some(function (r) { return visible(table, r) && test(r) && !writable(table, 'delete', r); })) return refused();
+          var keep = db[table].filter(function (r) { return !(visible(table, r) && test(r)); });
           var gone = db[table].length - keep.length;
           db[table] = keep;
           if (gone && ['staff', 'bunk_assignments', 'submissions'].indexOf(table) >= 0) audit('delete', table, null);
           save();
           return { data: null, error: null };
         }
-        var rows2 = db[table].map(function (r) { return embed(db, table, r, st.sel); }).filter(test);
+        var rows2 = db[table].filter(function (r) { return visible(table, r); }).map(function (r) { return embed(db, table, r, st.sel, visible); }).filter(test);
         st.orders.slice().reverse().forEach(function (o) {
           rows2.sort(function (a, b) { var x = a[o.col], y = b[o.col]; if (x == null && y == null) return 0; if (x == null) return o.nullsFirst ? -1 : 1; if (y == null) return o.nullsFirst ? 1 : -1; return (x < y ? -1 : x > y ? 1 : 0) * (o.asc ? 1 : -1); });
         });
@@ -333,15 +389,17 @@
     }
 
     var rpcs = {
-      form_status: function (a) { return formStatus(db, a.p_session || null); },
+      form_status: function (a) { if (!is('director', 'office', 'infirmary')) notAllowed(); return formStatus(db, a.p_session || null); },
       bunk_list: function (a) {
+        var bs = bunkSession(a.p_bunk);
+        if (!(is('director', 'office', 'infirmary') || head(bs) || (me.role === 'counselor' && me.bunk_id === a.p_bunk))) notAllowed();
         return db.bunk_assignments.filter(function (x) { return x.bunk_id === a.p_bunk; }).map(function (x) {
           var c = db.campers.find(function (k) { return k.id === x.camper_id; }), h = db.camper_health.find(function (k) { return k.camper_id === x.camper_id; });
           return c && c.active ? { camper_id: c.id, first_name: c.first_name, last_name: c.last_name, grade: c.grade, alert: h ? h.alert : null } : null;
         }).filter(Boolean).sort(function (a, b) { return (a.last_name + a.first_name).localeCompare(b.last_name + b.first_name); });
       },
-      sfsp_connection: function () { var s = db.camp_secrets[0]; return { sfsp_camp_id: s.sfsp_camp_id, sfsp_form_url: s.sfsp_form_url, has_secret: true, last_message: null }; },
-      set_sfsp_connection: function (a) { var s = db.camp_secrets[0]; s.sfsp_camp_id = a.p_sfsp_camp_id || s.sfsp_camp_id; s.sfsp_form_url = a.p_form_url || s.sfsp_form_url; save(); return null; },
+      sfsp_connection: function () { if (!is('director')) return null; var s = db.camp_secrets[0]; return { sfsp_camp_id: s.sfsp_camp_id, sfsp_form_url: s.sfsp_form_url, has_secret: true, last_message: null }; },
+      set_sfsp_connection: function (a) { if (!is('director')) notAllowed(); var s = db.camp_secrets[0]; s.sfsp_camp_id = a.p_sfsp_camp_id || s.sfsp_camp_id; s.sfsp_form_url = a.p_form_url || s.sfsp_form_url; save(); return null; },
       log_file_view: function () { return null; }
     };
     return {
@@ -349,13 +407,17 @@
       from: from,
       rpc: function (name, args) {
         var f = rpcs[name];
-        return Promise.resolve(f ? { data: clone(f(args || {})), error: null } : { data: null, error: { message: 'Not available in ' + NAME } });
+        if (!f) return Promise.resolve({ data: null, error: { message: 'Not available in ' + NAME } });
+        try { return Promise.resolve({ data: clone(f(args || {})), error: null }); }
+        catch (e) { return Promise.resolve({ data: null, error: { message: e.denied ? 'Your role can\'t see this.' : e.message, expected: !!e.denied } }); }
       },
+      role: function () { return me; },
+      setRole: function (k) { me = ROLES.find(function (r) { return r.key === k; }) || ROLES[0]; try { sessionStorage.setItem(ROLE_KEY(email), me.key); } catch (e) { } return me; },
       storage: { from: function () { return {
         upload: function () { return Promise.resolve({ data: {}, error: null }); },
         createSignedUrl: function () { return Promise.resolve({ data: null, error: { message: 'Files aren\'t kept in ' + NAME + '. In your own camp, this opens the form.', expected: true } }); }
       }; } },
-      portalView: function (familyId) { return portalView(db, familyId); },
+      portalView: function (familyId) { return portalView(db, familyId); },   // the family's own page: not limited by the staff role
       submit: function (familyId, body) {
         var r = db.requirements.find(function (x) { return x.id === body.requirement_id; });
         if (!r) return { error: 'That form is not on the list.' };
@@ -371,7 +433,7 @@
     };
   }
 
-  function clear(email) { try { sessionStorage.removeItem(KEY(email)); } catch (e) { } }
+  function clear(email) { try { sessionStorage.removeItem(KEY(email)); sessionStorage.removeItem(ROLE_KEY(email)); } catch (e) { } }
 
-  root.DemoDB = { CAMP: CAMP, NAME: NAME, SFSP_PRACTICE_FORM: SFSP_PRACTICE_FORM, client: client, clear: clear, build: build, checkSubmission: checkSubmission, formStatus: formStatus };
+  root.DemoDB = { CAMP: CAMP, NAME: NAME, ROLES: ROLES, savedRole: savedRole, SFSP_PRACTICE_FORM: SFSP_PRACTICE_FORM, client: client, clear: clear, build: build, checkSubmission: checkSubmission, formStatus: formStatus };
 })(typeof window !== 'undefined' ? window : globalThis);

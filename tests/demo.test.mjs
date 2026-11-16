@@ -79,3 +79,50 @@ test('practice family page submits with the same rules as the real one', () => {
     assert.equal(b.error, a.error); assert.equal(b.status, a.status);
   }
 });
+
+test('"Viewing as": each role sees and changes only what the database would allow', async () => {
+  DemoDB.clear('r@example.com');
+  const db = DemoDB.client('r@example.com');
+  const n = async t => plain((await db.from(t).select('*')).data).length;
+  const counts = {};
+  for (const k of ['director', 'office', 'finance', 'infirmary', 'head-boys', 'counselor']) {
+    db.setRole(k);
+    counts[k] = { families: await n('families'), campers: await n('campers'), submissions: await n('submissions'), health: await n('camper_health'), money: await n('finance_accounts'), staff: await n('staff'), audit: await n('audit_log') };
+  }
+  const fam = counts.director.families;
+  assert.deepEqual(counts.director, { ...counts.director, campers: 500 });
+  assert.ok(counts.director.money > 0 && counts.director.audit > 0 && counts.director.staff > 0);
+  assert.deepEqual(counts.office, { families: fam, campers: 500, submissions: counts.director.submissions, health: counts.director.health, money: 0, staff: 0, audit: 0 });
+  assert.deepEqual(counts.finance, { families: fam, campers: 500, submissions: 0, health: 0, money: counts.director.money, staff: 0, audit: 0 });
+  assert.deepEqual(counts.infirmary, { families: fam, campers: 500, submissions: counts.director.submissions, health: counts.director.health, money: 0, staff: 0, audit: 0 });
+  assert.deepEqual(counts['head-boys'], { families: 0, campers: 250, submissions: 0, health: 0, money: 0, staff: 0, audit: 0 });
+  assert.deepEqual(counts.counselor, { families: 0, campers: 0, submissions: 0, health: 0, money: 0, staff: 0, audit: 0 });
+
+  // Head counselor: roster rows carry no family contacts; can change own session's bunks only.
+  db.setRole('head-boys');
+  const rows = plain((await db.from('campers').select('id, families(last_name)').eq('camp_id', 'demo')).data);
+  assert.ok(rows.every(r => r.families === null), 'no family details for head counselors');
+  const kid = rows[0].id;
+  assert.equal((await db.from('bunk_assignments').insert({ bunk_id: 'bunk-boys-2', camper_id: kid, camp_id: 'demo' })).error, null, 'own session bunk');
+  assert.ok((await db.from('bunk_assignments').insert({ bunk_id: 'bunk-girls-2', camper_id: kid, camp_id: 'demo' })).error, 'other session refused');
+  assert.ok((await db.rpc('form_status', { p_camp: 'demo' })).error, 'no forms dashboard');
+  assert.ok(plain((await db.rpc('bunk_list', { p_bunk: 'bunk-boys-1' })).data).length > 0);
+  assert.ok((await db.rpc('bunk_list', { p_bunk: 'bunk-girls-1' })).error, 'not the other session');
+
+  // Counselor: own bunk list with alerts, nothing else.
+  db.setRole('counselor');
+  assert.ok(plain((await db.rpc('bunk_list', { p_bunk: 'bunk-boys-1' })).data).length > 0);
+  assert.ok((await db.rpc('bunk_list', { p_bunk: 'bunk-boys-2' })).error);
+  assert.ok((await db.from('campers').update({ grade: 'x' }).eq('id', kid)).error === null, 'invisible rows: nothing to update');
+  assert.equal(plain((await db.from('campers').select('*')).data).length, 0);
+
+  // Office can record paper forms but not approve; infirmary approves.
+  db.setRole('office');
+  const sub = plain((await db.from('submissions').select('*').eq('status', 'received')).data)[0];
+  assert.ok((await db.from('submissions').update({ status: 'approved' }).eq('id', sub.id)).error, 'office cannot approve');
+  db.setRole('infirmary');
+  assert.equal((await db.from('submissions').update({ status: 'approved' }).eq('id', sub.id)).error, null, 'infirmary approves');
+  assert.ok((await db.from('staff').insert({ camp_id: 'demo', email: 'x@example.com', role: 'office' })).error, 'only the director manages staff');
+  db.setRole('director');
+  DemoDB.clear('r@example.com');
+});
