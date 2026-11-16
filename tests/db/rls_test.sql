@@ -416,4 +416,42 @@ do $$ begin
 exception when insufficient_privilege then null; end $$;
 rollback;
 
+
+-- ---------- Requests to open a camp ----------
+begin;
+do $$ begin perform pg_temp.as_user('stranger@x.org'); end $$;
+do $$ declare i jsonb; begin
+  assert (select count(*) from camps) = 0, 'a stranger sees no camps';
+  i := site_info(); assert not (i ->> 'admin')::boolean and not (i ->> 'public_test_camp')::boolean and i -> 'my_request' = 'null'::jsonb, 'stranger info';
+  insert into camp_requests (name, camp_name, location) values ('Sam Stranger', 'Camp Sunshine', 'Monsey, NY');
+  assert site_info() -> 'my_request' ->> 'status' = 'pending', 'own request shows';
+  begin insert into camp_requests (name, camp_name) values ('Sam', 'Another'); raise exception 'second pending request allowed'; exception when unique_violation then null; end;
+  begin insert into camp_requests (email, name, camp_name) values ('other@x.org', 'Sam', 'Spoof'); raise exception 'request for someone else allowed'; exception when insufficient_privilege then null; end;
+  begin perform approve_camp_request((select id from camp_requests limit 1)); raise exception 'stranger approved'; exception when insufficient_privilege then null; end;
+  begin update site_settings set public_test_camp = true; exception when others then null; end;
+  assert not (select public_test_camp from site_settings), 'stranger cannot open the test camp';
+end $$;
+reset role;
+do $$ begin perform pg_temp.as_user('other@x.org'); end $$;
+do $$ begin assert (select count(*) from camp_requests) = 0, 'others cannot read the request'; end $$;
+reset role;
+set local role service_role; insert into site_admins values ('owner@x.org'); reset role;
+do $$ begin perform pg_temp.as_user('owner@x.org'); end $$;
+do $$ declare c uuid; begin
+  assert (site_info() ->> 'pending_requests')::int = 1, 'owner sees the pending count';
+  c := approve_camp_request((select id from camp_requests where email = 'stranger@x.org'));
+  assert (select status from camp_requests where camp_id = c) = 'approved';
+  update site_settings set public_test_camp = true;
+  begin perform approve_camp_request((select id from camp_requests where email = 'stranger@x.org')); raise exception 'approved twice'; exception when raise_exception then null; end;
+end $$;
+reset role;
+do $$ begin perform pg_temp.as_user('stranger@x.org'); end $$;
+do $$ begin
+  assert (select count(*) from my_access()) = 1 and (select role from my_access()) = 'director', 'requester is director of the new camp';
+  assert (select slug from camps) = 'camp-sunshine', 'slug from the name';
+  assert (select count(*) from requirements) >= 5 and (select count(*) from roles) = 6, 'new camp has the standard forms and roles';
+  assert (site_info() ->> 'public_test_camp')::boolean, 'switch visible';
+end $$;
+rollback;
+
 \echo 'ALL DATABASE TESTS PASSED'

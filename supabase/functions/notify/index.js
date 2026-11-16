@@ -3,6 +3,9 @@
 // POST {camp, action:'remind', family_ids, force?} → reminder now (director or office)
 // POST {camp, action:'rejected', family_ids}      → "please send again" after the infirmary sends a form back
 // POST {camp, action:'link', family_ids:[id]}      → a fresh family link to copy (director or office)
+// POST {action:'daily_report'} with x-cron-key     → the 8 a.m. registration report
+// POST {action:'camp_request', id}                 → tells the site owner a new camp request came in (once per request)
+// POST {action:'camp_request_answer', id}          → tells the requester it was approved or declined (site owner only, once)
 import { admin, env, json, fail, cors, staffFor, sameText, must } from '../_shared/server.js';
 import { newFamilyLink, sfspLink } from '../_shared/links.js';
 import { dueEmail, buildEmail } from '../_shared/reminders.js';
@@ -33,6 +36,8 @@ Deno.serve(async req => {
       for (const camp of camps) out[camp.slug] = await dailyReport(db, camp, body.at ? new Date(body.at) : new Date());
       return json(out);
     }
+
+    if (body.action === 'camp_request' || body.action === 'camp_request_answer') return json(await campRequestEmail(req, db, body));
 
     const { data: camp } = await db.from('camps').select('*').eq('id', body.camp || '').maybeSingle();
     if (!camp) return fail('Unknown camp', 404);
@@ -139,4 +144,47 @@ async function dailyReport(db, camp, now) {
   } catch (e) { error = String(e.message || e); }
   await db.from('daily_reports').update({ sent_to: to, error }).eq('id', ins.data.id);
   return { made: true, campers: data.campers, sent: error ? 0 : to.length, error };
+}
+
+// ---------- Requests to open a camp ----------
+const escH = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+async function mail(to, subject, text, replyTo) {
+  const r = await fetch('https://api.resend.com/emails', {
+    method: 'POST', headers: { Authorization: `Bearer ${env('RESEND_API_KEY')}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: env('SITE_MAIL_FROM') || 'Camp Roster <office@wgcamps.com>', to, reply_to: replyTo || undefined, subject, text,
+      html: `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.55;color:#1d1d1b;max-width:600px;white-space:pre-line">${escH(text)}</div>` })
+  });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message || `email service said ${r.status}`);
+}
+async function campRequestEmail(req, db, body) {
+  if (!/^[0-9a-f-]{36}$/.test(body.id || '')) throw new Error('Bad request');
+  const { data: r } = await db.from('camp_requests').select('*').eq('id', body.id).maybeSingle();
+  if (!r) return { sent: false };
+  const site = appUrl();
+  if (body.action === 'camp_request') {
+    // Anyone may poke this, but it only ever emails the owner once per real, pending request.
+    if (r.status !== 'pending' || r.notified_at) return { sent: false };
+    const { data: claimed } = await db.from('camp_requests').update({ notified_at: new Date().toISOString() }).eq('id', r.id).is('notified_at', null).select('id');
+    if (!claimed || !claimed.length) return { sent: false };
+    const owners = (must(await db.from('site_admins').select('email'), 'owners') || []).map(x => x.email);
+    if (!owners.length) return { sent: false };
+    await mail(owners, `Camp request: ${r.camp_name}`,
+      `${r.name} (${r.email}) asked to open a camp in Camp Roster.\n\nCamp: ${r.camp_name}\n` + (r.location ? `Where: ${r.location}\n` : '') + (r.campers ? `About how many campers: ${r.campers}\n` : '') + (r.phone ? `Phone: ${r.phone}\n` : '') + (r.message ? `\n${r.message}\n` : '') +
+      `\nApprove or decline it under Camp requests: ${site}/#requests`, r.email);
+    return { sent: true };
+  }
+  // The decision: only a site owner, only once.
+  const token = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
+  const { data: u } = token ? await db.auth.getUser(token) : { data: null };
+  const email = u?.user?.email?.toLowerCase();
+  const { data: owner } = email ? await db.from('site_admins').select('email').eq('email', email).maybeSingle() : { data: null };
+  if (!owner) throw new Error('Not allowed');
+  if (r.status === 'pending' || r.answer_sent_at) return { sent: false };
+  const { data: claimed } = await db.from('camp_requests').update({ answer_sent_at: new Date().toISOString() }).eq('id', r.id).is('answer_sent_at', null).select('id');
+  if (!claimed || !claimed.length) return { sent: false };
+  const { data: camp } = r.camp_id ? await db.from('camps').select('name').eq('id', r.camp_id).maybeSingle() : { data: null };
+  if (r.status === 'approved') await mail([r.email], `${camp?.name || r.camp_name} is ready in Camp Roster`,
+    `Hi ${r.name},\n\nYour camp, ${camp?.name || r.camp_name}, is set up in Camp Roster and you're its director.\n\nSign in with this email address (${r.email}) at ${site}\n\nFrom Settings you can add your staff, your sessions and the forms you need.`, email);
+  else await mail([r.email], `Your Camp Roster request`, `Hi ${r.name},\n\nThanks for your interest in Camp Roster. We're not able to open ${r.camp_name} right now. Reply to this email if you have any questions.`, email);
+  return { sent: true };
 }

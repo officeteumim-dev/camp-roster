@@ -31,6 +31,7 @@ const FAKE = {
   session: { access_token: 'x', user: { email: 'dir@example.org' } },
   writes: [],
   rpc: {
+    site_info: { admin: true, public_test_camp: false, pending_requests: 1, my_request: null },
     my_access: [{ camp_id: 'c1', camp_name: camp.name, role: 'director' }, { camp_id: 'c1', camp_name: camp.name, role: 'infirmary' }, { camp_id: 'c1', camp_name: camp.name, role: 'counselor', session_id: 's1', bunk_id: 'b1' }],
     form_status: status,
     bunk_list: [{ camper_id: 'k1', first_name: 'Yosef', last_name: 'Levi', grade: '8th', alert: 'Peanut allergy, EpiPen' }],
@@ -137,6 +138,10 @@ const csv = await readFile(await dl.path(), 'utf8');
 if (!/^\ufeffLast name,First name,Grade/.test(csv) || csv.trim().split('\n').length !== 3) errors.push('roster export wrong: ' + csv.slice(0, 120));
 
 // Interactions: filter to missing physicals, approve a form, reject one.
+await page.evaluate(() => { window.FAKE.tables.camp_requests = [{ id: '00000000-0000-0000-0000-00000000aa01', email: 'sam@example.com', name: 'Sam Stranger', camp_name: 'Camp Sunshine', location: 'Monsey, NY', campers: '120', status: 'pending', created_at: '2026-11-16T15:00:00Z' }]; window.FAKE.tables.site_settings = [{ id: true, public_test_camp: false }]; });
+await page.goto('http://app.test/#requests'); await page.waitForTimeout(400);
+if (!/Camp Sunshine/.test(await page.locator('main').innerText())) errors.push('owner does not see camp requests');
+await page.screenshot({ path: path.join(out, 'owner-requests.png'), fullPage: true });
 await page.goto('http://app.test/#forms'); await page.waitForTimeout(300);
 await page.selectOption('#fm', 'physical'); await page.waitForTimeout(100);
 const shown = await page.locator('#count').innerText();
@@ -184,8 +189,25 @@ if (!(await small.locator('.foot-brand .logo').isVisible())) errors.push('logo m
 await small.locator('#drawer nav a', { hasText: 'Bunks' }).click(); await small.waitForTimeout(400);
 if (!/#bunks$/.test(small.url()) || await small.locator('#drawer').evaluate(d => d.classList.contains('open'))) errors.push('phone menu link did not go to Bunks and close');
 
-// Camp Test Site, as a new user with no camp yet: explore, roster of 500, family page practice, nothing sent anywhere.
+// The public: signed in but on no camp. Until the owner opens Camp Test Site to everyone, they can only ask to open a camp.
+const STRANGER = JSON.parse(JSON.stringify(FAKE)); STRANGER.rpc.my_access = []; STRANGER.session.user.email = 'stranger@example.com';
+STRANGER.rpc.site_info = { admin: false, public_test_camp: false, my_request: null };
+const pub = await newPage(1360, STRANGER);
+await pub.goto('http://app.test/'); await pub.waitForTimeout(400);
+if (await pub.getByRole('button', { name: /Explore Camp Test Site/ }).count()) errors.push('the public can open the test camp before it is opened to them');
+if (await pub.locator('#drawer nav a').count() && await pub.locator('#drawer').isVisible()) errors.push('the public sees the menu');
+await pub.locator('#rq_name').fill('Sam Stranger'); await pub.locator('#rq_camp').fill('Camp Sunshine'); await pub.locator('#rq_loc').fill('Monsey, NY');
+await pub.screenshot({ path: path.join(out, 'public-request.png'), fullPage: true });
+await pub.locator('#reqf button.primary').click(); await pub.waitForTimeout(400);
+const sentReq = await pub.evaluate(() => window.FAKE.writes.find(w => w.table === 'camp_requests'));
+if (!sentReq || sentReq.value.camp_name !== 'Camp Sunshine' || sentReq.value.email) errors.push('camp request not sent right: ' + JSON.stringify(sentReq));
+if (!/waiting for approval/.test(await pub.locator('main').innerText())) errors.push('no waiting message after the request');
+await pub.screenshot({ path: path.join(out, 'public-waiting.png'), fullPage: true });
+await pub.context().close();
+
+// Camp Test Site, as a new user with no camp yet (opened to the public): explore, roster of 500, family page practice, nothing sent anywhere.
 const NEW = JSON.parse(JSON.stringify(FAKE)); NEW.rpc.my_access = []; NEW.session.user.email = 'new@example.com';
+NEW.rpc.site_info = { admin: false, public_test_camp: true, my_request: null };
 const demo = await newPage(1360, NEW);
 const serverCalls = [];
 demo.on('request', r => { const u = r.url(); if (u.includes('fake.supabase.co')) serverCalls.push(u); });

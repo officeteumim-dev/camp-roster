@@ -51,7 +51,7 @@
   // ---------- sign in ----------
   function showSignIn(msg) {
     hideChrome();
-    $main.innerHTML = '<div class="card signin"><span class="logo" role="img" aria-label="Camp Roster by W Group"></span><h1>Camp Roster</h1><p class="muted">Sign in with the email address the camp office added for you.</p>' +
+    $main.innerHTML = '<div class="card signin"><span class="logo" role="img" aria-label="Camp Roster by W Group"></span><h1>Camp Roster</h1><p class="muted">Rosters, registration and health forms for camps. Staff: sign in with the email address your camp office added for you. Running a camp? Sign in to ask to open one.</p>' +
       (msg ? '<div class="error">' + esc(msg) + '</div>' : '') +
       '<p><button class="primary" id="g">Sign in with Google</button></p><hr style="border:0;border-top:1px solid var(--line);margin:18px 0">' +
       '<form id="ml"><label class="field">Or get a sign-in link by email<input type="email" id="em" required autocomplete="email"></label><button>Email me a link</button></form></div>';
@@ -68,25 +68,98 @@
       var s = r.data.session;
       if (!s) return showSignIn();
       S.user = s.user;
-      return sb.rpc('my_access').then(function (res) {
-        S.access = must(res);
+      return Promise.all([sb.rpc('my_access'), sb.rpc('site_info')]).then(function (res) {
+        S.access = must(res[0]);
+        S.site = (!res[1].error && res[1].data) || { admin: false, public_test_camp: false };
         var real = S.access.length;
-        // Everyone can open Camp Test Site, as its director.
-        S.access.push({ camp_id: DEMO.CAMP, camp_name: DEMO.NAME, role: 'director', session_id: null, bunk_id: null });
+        // Camp Test Site: for everyone with a camp; for everyone else only once the owner opens it to the public.
+        var demoOk = real || S.site.admin || S.site.public_test_camp;
+        if (demoOk) S.access.push({ camp_id: DEMO.CAMP, camp_name: DEMO.NAME, role: 'director', session_id: null, bunk_id: null });
         var saved = localStorage.getItem('camp');
-        if (!real && saved !== DEMO.CAMP) return showNoAccess();
+        if (!real && !(demoOk && saved === DEMO.CAMP)) return showNoAccess();
         pickCamp(S.access.some(function (a) { return a.camp_id === saved; }) ? saved : S.access[0].camp_id);
       });
     }).catch(fail);
   }
 
+  // Signed in, but not on any camp's staff: ask to open a camp (or see how that request stands).
   function showNoAccess() {
     hideChrome();
-    $main.innerHTML = '<div class="card signin"><span class="logo" role="img" aria-label="Camp Roster by W Group"></span><h1>Camp Roster</h1><p>Your account (' + esc(S.user.email) + ') has not been given access to a camp yet. Ask your camp director to add you.</p>' +
-      '<p>Meanwhile, you can explore <strong>' + DEMO.NAME + '</strong>, a practice camp with 500 sample campers. Try anything: nothing you do there is saved.</p>' +
-      '<p class="row"><button class="primary" id="godemo">Explore ' + DEMO.NAME + '</button><button id="out2">Sign out</button></p></div>';
-    document.getElementById('godemo').onclick = function () { pickCamp(DEMO.CAMP); };
+    var r = S.site.my_request, demoOk = S.site.admin || S.site.public_test_camp;
+    var demoBtn = demoOk ? '<button id="godemo">Explore ' + DEMO.NAME + '</button>' : '';
+    var html = '<div class="card signin wide"><span class="logo" role="img" aria-label="Camp Roster by W Group"></span><h1>Camp Roster</h1>';
+    if (r && r.status === 'pending') {
+      html += '<p><strong>Thanks, ' + esc(r.name) + '.</strong> Your request to open <strong>' + esc(r.camp_name) + '</strong> is waiting for approval. We\'ll email ' + esc(S.user.email) + ' when your camp is ready.</p>' +
+        '<p class="small muted">Sent ' + esc(when(r.created_at)) + '. Joining a camp that already uses Camp Roster? Ask its director to add ' + esc(S.user.email) + ' instead.</p>';
+    } else {
+      html += '<p>Your account (' + esc(S.user.email) + ') isn\'t part of a camp yet. <strong>Staff:</strong> ask your camp director to add this address. <strong>Running a camp?</strong> Ask to open one below.</p>' +
+        (r && r.status === 'declined' ? '<p class="small muted">Your earlier request for ' + esc(r.camp_name) + ' wasn\'t approved. You\'re welcome to send a new one.</p>' : '') +
+        '<form id="reqf"><h2>Ask to open a camp</h2>' +
+        '<label class="field">Your name<input type="text" id="rq_name" required maxlength="120" autocomplete="name"></label>' +
+        '<label class="field">Camp name<input type="text" id="rq_camp" required minlength="2" maxlength="120"></label>' +
+        '<label class="field">Where is the camp? <span class="small muted">(optional)</span><input type="text" id="rq_loc" maxlength="160" placeholder="City, state"></label>' +
+        '<label class="field">About how many campers? <span class="small muted">(optional)</span><input type="text" id="rq_n" maxlength="40"></label>' +
+        '<label class="field">Phone <span class="small muted">(optional)</span><input type="tel" id="rq_ph" maxlength="40" autocomplete="tel"></label>' +
+        '<label class="field">Anything else we should know? <span class="small muted">(optional)</span><textarea id="rq_msg" maxlength="2000" rows="3"></textarea></label>' +
+        '<button class="primary">Send request</button></form>';
+    }
+    html += '<p class="row" style="margin-top:16px">' + demoBtn + '<button id="out2">Sign out</button></p></div>';
+    $main.innerHTML = html;
+    var gd = document.getElementById('godemo'); if (gd) gd.onclick = function () { pickCamp(DEMO.CAMP); };
     document.getElementById('out2').onclick = function () { DEMO.clear(S.user.email); sb.auth.signOut().then(function () { showSignIn(); }); };
+    var f = document.getElementById('reqf');
+    if (f) f.onsubmit = function (e) {
+      e.preventDefault();
+      var v = function (id) { return document.getElementById(id).value.trim() || null; };
+      var btn = f.querySelector('button.primary'); btn.disabled = true;
+      sb.from('camp_requests').insert({ name: v('rq_name'), camp_name: v('rq_camp'), location: v('rq_loc'), campers: v('rq_n'), phone: v('rq_ph'), message: v('rq_msg') }).select().single()
+        .then(must).then(function (row) {
+          S.site.my_request = Object.assign({ status: 'pending', created_at: new Date().toISOString() }, row);
+          fn('notify', { action: 'camp_request', id: row.id }).catch(function () { });   // the owner also sees it under Camp requests
+          showNoAccess();
+        }).catch(function (e2) { btn.disabled = false; fail(/one_pending|duplicate/.test(e2.message) ? said('You already have a request waiting.') : e2); });
+    };
+  }
+
+  // ---------- Camp requests (site owner) ----------
+  function requestsPage() {
+    $main.innerHTML = '<p class="muted">Loading…</p>';
+    Promise.all([sb.from('camp_requests').select('*').order('created_at', { ascending: false }).limit(200), sb.from('site_settings').select('*').maybeSingle()]).then(function (r) {
+      var list = must(r[0]) || [], set = must(r[1]) || {};
+      var pend = list.filter(function (x) { return x.status === 'pending'; }), done = list.filter(function (x) { return x.status !== 'pending'; });
+      var row = function (x) {
+        return '<div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start"><div><h2 style="margin:0">' + esc(x.camp_name) + '</h2><p class="small muted" style="margin:2px 0 8px">' + esc(x.name) + ' · ' + esc(x.email) + (x.phone ? ' · ' + esc(x.phone) : '') + ' · ' + esc(when(x.created_at)) + '</p>' +
+          (x.location ? '<div class="small"><strong>Where:</strong> ' + esc(x.location) + '</div>' : '') + (x.campers ? '<div class="small"><strong>Campers:</strong> ' + esc(x.campers) + '</div>' : '') +
+          (x.message ? '<p class="small" style="white-space:pre-line">' + esc(x.message) + '</p>' : '') + '</div>' +
+          (x.status === 'pending' ? '<div class="row"><button class="primary" data-approve-req="' + x.id + '">Approve</button><button data-decline-req="' + x.id + '">Decline</button></div>'
+            : '<span class="chip ' + (x.status === 'approved' ? 'good' : 'none') + '">' + (x.status === 'approved' ? 'Approved' : 'Declined') + '</span>') + '</div></div>';
+      };
+      $main.innerHTML = '<h1>Camp requests</h1><p class="muted" style="max-width:820px">Anyone can sign in, but only people you approve here (or that a camp director adds as staff) get into a camp. Approving makes the camp, with the standard forms, roles and settings, and makes the person who asked its director. They\'re emailed either way.</p>' +
+        '<div class="card"><label class="check"><input type="checkbox" id="pubdemo"' + (set.public_test_camp ? ' checked' : '') + '><span>Let people without a camp explore ' + DEMO.NAME + ' <span class="small muted">(the practice camp; nothing they do there is saved)</span></span></label></div>' +
+        '<h2>Waiting (' + pend.length + ')</h2>' + (pend.length ? pend.map(row).join('') : '<p class="muted">No requests waiting.</p>') +
+        (done.length ? '<h2>Decided</h2>' + done.map(row).join('') : '');
+      document.getElementById('pubdemo').onchange = function (e) {
+        sb.from('site_settings').update({ public_test_camp: e.target.checked, updated_at: new Date().toISOString() }).eq('id', true).then(must)
+          .then(function () { S.site.public_test_camp = e.target.checked; toast(e.target.checked ? 'Anyone signed in can now explore ' + DEMO.NAME + '.' : DEMO.NAME + ' is for camp staff only again.'); }).catch(fail);
+      };
+      var answer = function (id) { return fn('notify', { action: 'camp_request_answer', id: id }).catch(function (e) { toast('Saved, but the email didn\'t go out: ' + e.message); }); };
+      [].forEach.call($main.querySelectorAll('[data-approve-req]'), function (b) {
+        b.onclick = function () {
+          var x = list.find(function (q) { return q.id === b.dataset.approveReq; });
+          var name = prompt('Approve and open this camp? You can adjust its name:', x.camp_name); if (name === null) return;
+          b.disabled = true;
+          sb.rpc('approve_camp_request', { p_id: x.id, p_camp_name: name }).then(must).then(function () { return answer(x.id); })
+            .then(function () { toast(name + ' is open. ' + x.email + ' is its director.'); S.site.pending_requests = Math.max(0, (S.site.pending_requests || 1) - 1); drawTop(); requestsPage(); }).catch(function (e) { b.disabled = false; fail(e); });
+        };
+      });
+      [].forEach.call($main.querySelectorAll('[data-decline-req]'), function (b) {
+        b.onclick = function () {
+          if (!confirm('Decline this request? They\'ll get a short email saying so.')) return;
+          sb.rpc('decline_camp_request', { p_id: b.dataset.declineReq }).then(must).then(function () { return answer(b.dataset.declineReq); })
+            .then(function () { toast('Declined'); S.site.pending_requests = Math.max(0, (S.site.pending_requests || 1) - 1); drawTop(); requestsPage(); }).catch(fail);
+        };
+      });
+    }).catch(fail);
   }
 
   function pickCamp(id) {
@@ -135,6 +208,7 @@
     settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
     reports: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 18v-2"/><path d="M12 18v-4"/><path d="M16 18v-6"/>',
     activity: '<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/>',
+    requests: '<path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/>',
     menu: '<line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/>',
     close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'
   };
@@ -148,7 +222,8 @@
     ['imports', 'Imports', 'Office', function () { return can('imports'); }],
     ['reports', 'Reports', 'Office', function () { return can('reports'); }],
     ['settings', 'Settings', 'Setup', function () { return isDirector(); }],
-    ['activity', 'Activity', 'Setup', function () { return can('activity'); }]
+    ['activity', 'Activity', 'Setup', function () { return can('activity'); }],
+    ['requests', 'Camp requests', 'Setup', function () { return S.site && S.site.admin && !S.demo; }]
   ];
   var allowedPages = function () { return PAGES.filter(function (p) { return p[3](); }); };
 
@@ -191,7 +266,7 @@
     document.getElementById('campName').textContent = S.camp.name;
     var groups = [];
     pages.forEach(function (p) { var g = groups.find(function (x) { return x.name === p[2]; }); if (!g) groups.push(g = { name: p[2], pages: [] }); g.pages.push(p); });
-    var link = function (p) { return '<a href="#' + p[0] + '" data-p="' + p[0] + '">' + svg(ICON[p[0]]) + '<span>' + p[1] + '</span></a>'; };
+    var link = function (p) { return '<a href="#' + p[0] + '" data-p="' + p[0] + '">' + svg(ICON[p[0]]) + '<span>' + p[1] + (p[0] === 'requests' && S.site.pending_requests ? ' <span class="chip warn" aria-label="' + S.site.pending_requests + ' waiting">' + S.site.pending_requests + '</span>' : '') + '</span></a>'; };
     $drawer.innerHTML = '<div class="drawer-head"><span class="logo" role="img" aria-label="Camp Roster by W Group"></span><b>' + esc(S.camp.name) + '</b><button class="iconbtn" data-close aria-label="Close menu">' + svg(ICON.close) + '</button></div>' +
       '<div class="drawer-acct">' + (camps.length > 1 ? '<select id="campsel" aria-label="Camp">' + camps.map(function (c) { return '<option value="' + c.id + '"' + (c.id === S.camp.id ? ' selected' : '') + '>' + esc(c.name) + (c.id === DEMO.CAMP ? ' (practice)' : '') + '</option>'; }).join('') + '</select>' : '') +
       '<span>' + esc(S.user.email) + '</span><span class="acct-role">' + (S.demo ? esc(DB.role().label) : S.roles.map(roleLabel).join(', ')) + '</span></div>' +
@@ -237,7 +312,7 @@
     if (!allowed.some(function (p) { return p[0] === page; })) page = allowed[0] ? allowed[0][0] : null;
     markPage(page);
     if (!page) { $main.innerHTML = '<div class="card">Nothing to show for your role yet.</div>'; return; }
-    ({ roster: rosterPage, forms: formsPage, bunks: bunksPage, mybunk: myBunkPage, money: moneyPage, imports: importsPage, reports: reportsPage, settings: settingsPage, activity: activityPage })[page]();
+    ({ roster: rosterPage, forms: formsPage, bunks: bunksPage, mybunk: myBunkPage, money: moneyPage, imports: importsPage, reports: reportsPage, requests: requestsPage, settings: settingsPage, activity: activityPage })[page]();
   }
   // Highlights the current page in the menu and bottom bar, and shows its name in the top bar.
   function markPage(page, title) {
