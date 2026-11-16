@@ -3,7 +3,10 @@
 (function () {
   'use strict';
   var cfg = window.ROSTER_CONFIG;
-  var sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
+  // Stay signed in on this device until "Sign out": the session is kept in this browser and renewed automatically.
+  var sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
+  // Ask the phone not to clear this site's saved sign-in when space runs low (Android and home-screen apps honor it).
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { }
   // DB is the real database, or Camp Test Site's in-browser stand-in (demo-db.js) while someone is in the test camp.
   var DB = sb, DEMO = window.DemoDB;
   var $main = document.getElementById('main'), $top = document.getElementById('top');
@@ -59,7 +62,20 @@
     document.getElementById('ml').onsubmit = function (e) {
       e.preventDefault();
       sb.auth.signInWithOtp({ email: document.getElementById('em').value.trim(), options: { emailRedirectTo: location.origin + '/', shouldCreateUser: true } })
-        .then(function (r) { if (r.error) throw r.error; $main.querySelector('form').innerHTML = '<p>Check your email for the sign-in link.</p>'; }).catch(fail);
+        .then(function (r) {
+          if (r.error) throw r.error;
+          // The code works where the link can't: in the home-screen app, a link opens the browser instead and signs that in.
+          var email = document.getElementById('em').value.trim();
+          var f = $main.querySelector('form');
+          f.outerHTML = '<form id="codef"><p>We emailed <strong>' + esc(email) + '</strong>. Tap the link in the email, or type the code from it here:</p>' +
+            '<label class="field">Code<input type="text" id="otp" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,10}" maxlength="10" required></label><button class="primary">Sign in</button></form>';
+          document.getElementById('otp').focus();
+          document.getElementById('codef').onsubmit = function (e2) {
+            e2.preventDefault();
+            sb.auth.verifyOtp({ email: email, token: document.getElementById('otp').value.replace(/\s/g, ''), type: 'email' })
+              .then(function (v) { if (v.error) throw said('That code didn\'t work. Check it, or ask for a new email.'); }).catch(fail);
+          };
+        }).catch(fail);
     };
   }
 
