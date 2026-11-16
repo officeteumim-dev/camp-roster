@@ -44,7 +44,7 @@ test('report email: one row per new camper, with the columns the director chose'
   assert.doesNotMatch(e.html, /d@example.org/, 'email not shown unless chosen');
 
   const cols = reportColumns(['phone', 'age', 'f_shirt', 'nonsense'], { f_shirt: 'T-shirt size' });
-  assert.deepEqual(cols.map(c => c.label), ['Phone', 'Age', 'T-shirt size']);
+  assert.deepEqual(cols.map(c => c.label), ['Camper', 'Phone', 'Age', 'T-shirt size'], 'the name is added when no name column is chosen');
   const e2 = buildReportEmail({ name: 'Camp Teumim' }, data, 'https://roster.example', 'America/New_York', cols);
   assert.match(e2.text, /- Baruch Cohen, \(845\) 555-0201, 11, Youth L/);
   assert.match(e2.html, /<th[^>]*>T-shirt size<\/th>/);
@@ -59,4 +59,14 @@ test('the app offers the same report columns as the email', async () => {
   const keys = [...block.matchAll(/^\s*\['(\w+)', '([^']+)'/gm)].map(m => [m[1], m[2]]);
   assert.deepEqual(keys, REPORT_COLUMNS.map(c => [c[0], c[1]]));
   assert.match(app, new RegExp("var REPORT_DEFAULT = " + JSON.stringify(REPORT_DEFAULT).replace(/"/g, "'").replace(/[[\]]/g, '\\$&').replace(/,/g, ', ')));
+});
+
+test('every Roster column can be a report column', async () => {
+  const app = await readFile(new URL('../web/app.js', import.meta.url), 'utf8');
+  const block = app.slice(app.indexOf('var ROSTER_COLS = ['), app.indexOf('var ROSTER_DEFAULT'));
+  const roster = [...block.matchAll(/^\s*\['\w+', '([^']+)'/gm)].map(m => m[1]);
+  assert.ok(roster.length > 20);
+  const report = REPORT_COLUMNS.map(c => c[1]);
+  assert.deepEqual(roster.filter(l => !report.includes(l)), []);
+  assert.deepEqual(reportColumns(['grade']).map(c => c.key), ['name', 'grade'], 'a report always says who');
 });

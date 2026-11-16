@@ -390,7 +390,7 @@
     ['gender', 'Gender', function (r) { return r.gender; }],
     ['sessions', 'Sessions', function (r) { return r.sessions.join(', '); }],
     ['bunks', 'Bunk', function (r) { return r.bunks.join(', '); }],
-    ['alert', 'Alert', function (r) { return r.alert; }],
+    ['alert', 'Medical alert', function (r) { return r.alert; }],
     ['forms', 'Forms missing', function (r) { return r.missing; }, 'num'],
     ['legal', 'Legal name', function (r) { return (r.legal_first || r.legal_last) ? [r.legal_first || r.first_name, r.legal_last || r.last_name].join(' ') : ''; }],
     ['hebrew', 'Hebrew name', function (r) { return r.hebrew_name; }],
@@ -1004,10 +1004,53 @@
   }
 
 
+  // Reorder a list of tiles by dragging the dots (mouse or finger), or with the arrow keys on the dots.
+  function dragTiles(ul) {
+    var drag = null;
+    ul.addEventListener('pointerdown', function (e) {
+      var g = e.target.closest('.grip'); if (!g) return;
+      e.preventDefault();
+      drag = g.closest('li'); drag.classList.add('dragging');
+    });
+    // While dragging near the top or bottom of the screen, scroll so long lists can be reordered end to end.
+    var lastY = 0, scroller = null;
+    var autoScroll = function () {
+      if (!drag) { clearInterval(scroller); scroller = null; return; }
+      var h = window.innerHeight, edge = 60;
+      if (lastY < edge) window.scrollBy(0, -12); else if (lastY > h - edge) window.scrollBy(0, 12); else return;
+      place(lastX, lastY);
+    };
+    var lastX = 0;
+    var place = function (x, y) {
+      var over = document.elementFromPoint(x, y), li = over && over.closest && over.closest('#' + ul.id + ' > li');
+      if (!li || li === drag) return;
+      var r = li.getBoundingClientRect();
+      ul.insertBefore(drag, y > r.top + r.height / 2 ? li.nextElementSibling : li);
+    };
+    // Follow the pointer anywhere on the page (moving the tile in the list would drop a pointer capture).
+    document.addEventListener('pointermove', function (e) {
+      if (!drag || !document.body.contains(ul)) return;
+      lastX = e.clientX; lastY = e.clientY;
+      if (!scroller) scroller = setInterval(autoScroll, 30);
+      place(e.clientX, e.clientY);
+    });
+    var end = function () { if (drag) { drag.classList.remove('dragging'); drag = null; } };
+    document.addEventListener('pointerup', end); document.addEventListener('pointercancel', end);
+    ul.addEventListener('keydown', function (e) {
+      var g = e.target.closest('.grip'); if (!g) return;
+      var li = g.closest('li');
+      if (e.key === 'ArrowUp' && li.previousElementSibling) { ul.insertBefore(li, li.previousElementSibling); g.focus(); e.preventDefault(); }
+      if (e.key === 'ArrowDown' && li.nextElementSibling) { ul.insertBefore(li.nextElementSibling, li); g.focus(); e.preventDefault(); }
+    });
+  }
+
   // ---------- Daily registration report ----------
   // The same columns as supabase/functions/_shared/reports.js (tests/reports.test.mjs checks they match).
   var ageOn = function (dob, on) { if (!dob) return ''; var b = new Date(dob + 'T12:00:00Z'), d = new Date(on), a = d.getUTCFullYear() - b.getUTCFullYear(); if (d.getUTCMonth() < b.getUTCMonth() || (d.getUTCMonth() === b.getUTCMonth() && d.getUTCDate() < b.getUTCDate())) a--; return String(a); };
   var REPORT_COLUMNS = [
+    ['name', 'Camper', function (c) { return c.name; }],
+    ['last', 'Last name', function (c) { return c.last_name || String(c.name || '').split(' ').slice(1).join(' '); }],
+    ['first', 'First name', function (c) { return c.first_name || String(c.name || '').split(' ')[0]; }],
     ['grade', 'Grade', function (c) { return c.grade; }],
     ['sessions', 'Sessions', function (c) { return (c.sessions || []).join(' & '); }],
     ['parents', 'Parents', function (c, f) { return f.parents; }],
@@ -1021,7 +1064,7 @@
     ['email', 'Email', function (c, f) { return f.email; }],
     ['hebrew', 'Hebrew name', function (c) { return c.hebrew_name; }],
     ['staffchild', 'Staff child', function (c) { return c.staff_child ? 'Yes' : ''; }],
-    ['campflow', 'Camp Flow family #', function (c, f) { return f.campflow_id; }],
+    ['campflow', 'Camp Flow family ID', function (c, f) { return f.campflow_id; }],
     ['father', 'Father', function (c, f) { return f.father; }],
     ['father_phone', 'Father phone', function (c, f) { return f.father_phone; }],
     ['father_email', 'Father email', function (c, f) { return f.father_email; }],
@@ -1038,11 +1081,12 @@
     ['alert', 'Medical alert', function (c) { return c.alert; }],
     ['bunk', 'Bunk', function (c) { return (c.bunks || []).join(', '); }],
     ['legal', 'Legal name', function (c) { return c.legal_name; }],
-    ['camper_id', 'Camp Flow camper #', function (c) { return c.campflow_camper_id; }]
+    ['camper_id', 'Camp Flow camper ID', function (c) { return c.campflow_camper_id; }]
   ];
-  var REPORT_DEFAULT = ['grade', 'sessions', 'parents', 'city', 'applied', 'newfamily'];
+  var REPORT_DEFAULT = ['name', 'grade', 'sessions', 'parents', 'city', 'applied', 'newfamily'];
   function reportCols(keys) {
     keys = keys && keys.length ? keys : REPORT_DEFAULT;
+    if (!keys.some(function (k) { return k === 'name' || k === 'first' || k === 'last'; })) keys = ['name'].concat(keys);   // every report says who
     return keys.map(function (k) {
       var b = REPORT_COLUMNS.find(function (x) { return x[0] === k; });
       if (b) return { key: k, label: b[1], get: b[2] };
@@ -1055,8 +1099,8 @@
     (data.list || []).forEach(function (f) { (f.campers || []).forEach(function (c) { rows.push({ c: c, f: f }); }); });
     var head = +data.campers ? data.campers + ' new camper' + (+data.campers === 1 ? '' : 's') + ' from ' + data.families + ' famil' + (+data.families === 1 ? 'y' : 'ies') + ' (' + data.new_families + ' new to camp)' : 'No new registrations';
     return '<p><strong>' + head + '</strong> <span class="muted">· ' + esc(when(data.from)) + ' to ' + esc(when(data.to)) + '</span></p>' +
-      (rows.length ? '<div class="scroll"><table class="grid"><thead><tr><th>Camper</th>' + cols.map(function (c) { return '<th>' + esc(c.label) + '</th>'; }).join('') + '</tr></thead><tbody>' +
-        rows.map(function (r) { return '<tr><td>' + (r.c.id ? '<a href="#camper/' + esc(r.c.id) + '">' + esc(r.c.name) + '</a>' : esc(r.c.name)) + '</td>' + cols.map(function (c) { return '<td>' + esc(c.get(r.c, r.f, data)) + '</td>'; }).join('') + '</tr>'; }).join('') +
+      (rows.length ? '<div class="scroll"><table class="grid"><thead><tr>' + cols.map(function (c) { return '<th>' + esc(c.label) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+        rows.map(function (r) { return '<tr>' + cols.map(function (c) { var v = c.get(r.c, r.f, data); return '<td>' + (['name', 'first', 'last'].indexOf(c.key) >= 0 && r.c.id ? '<a href="#camper/' + esc(r.c.id) + '">' + esc(v) + '</a>' : esc(v)) + '</td>'; }).join('') + '</tr>'; }).join('') +
         '</tbody></table></div>' : '');
   }
   function reportsPage(id) {
@@ -1129,8 +1173,8 @@
       html += '<div class="card" id="reportcard"><h2 style="margin-top:0">Daily registration report</h2><p class="small muted">New registrations, emailed at 8:00 every morning except Saturday (Sunday covers since Friday). It\'s also under <a href="#reports">Reports</a>.</p><form id="repf">' +
         '<label class="check"><input type="checkbox" id="repon"' + (st.report_enabled === false ? '' : ' checked') + '><span>Send the daily report</span></label>' +
         '<label class="field">Email it to <span class="small muted">(separate addresses with commas; blank sends it to the directors)</span><input type="text" id="repto" value="' + esc((st.report_to || []).join(', ')) + '"></label>' +
-        '<fieldset class="cols"><legend>Columns <span class="small muted">(the camper\'s name always comes first; use the arrows to change the order)</span></legend><ul id="repcols" class="collist">' +
-        ordered.map(function (c) { return '<li><label class="check"><input type="checkbox" data-col="' + esc(c[0]) + '"' + (rcols.indexOf(c[0]) >= 0 ? ' checked' : '') + '><span>' + esc(c[1]) + '</span></label><span class="row"><button type="button" data-up aria-label="Move ' + esc(c[1]) + ' up">↑</button><button type="button" data-down aria-label="Move ' + esc(c[1]) + ' down">↓</button></span></li>'; }).join('') +
+        '<fieldset class="cols"><legend>Columns <span class="small muted">(tick the ones you want; drag them by the dots to change the order)</span></legend><ul id="repcols" class="collist">' +
+        ordered.map(function (c) { return '<li class="tile' + (rcols.indexOf(c[0]) >= 0 ? ' on' : '') + '"><span class="grip" tabindex="0" role="button" aria-label="Drag to move ' + esc(c[1]) + ' (or use the arrow keys)">' + svg('<circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/>') + '</span><label class="check"><input type="checkbox" data-col="' + esc(c[0]) + '"' + (rcols.indexOf(c[0]) >= 0 ? ' checked' : '') + '><span>' + esc(c[1]) + '</span></label></li>'; }).join('') +
         '</ul></fieldset><div class="row"><button class="primary">Save</button><button type="button" id="repdef">Back to the standard columns</button></div></form></div>';
       html += '<div class="card"><h2 style="margin-top:0">Required forms</h2>' + S.reqs.map(function (q) { return '<label class="check"><input type="checkbox" data-req="' + q.id + '"' + (q.active ? ' checked' : '') + '><span>' + esc(q.label) + ' <span class="small muted">(' + (q.scope === 'family' ? 'per family' : 'per camper') + ')</span></span></label>'; }).join('') +
         (consent ? '<label class="check" style="margin-top:12px"><input type="checkbox" id="disc"' + (consent.config.accept_disclosure ? ' checked' : '') + '><span>Count Camp Flow\'s "Medical Authorization" disclosure as the consent to treat</span></label>' : '') + '</div>';
@@ -1165,13 +1209,8 @@
         DB.from('camps').update({ settings: s }).eq('id', S.camp.id).then(must).then(function () { S.camp.settings = s; toast('Saved'); }).catch(fail);
       };
       var ul = document.getElementById('repcols');
-      ul.onclick = function (e) {
-        var b = e.target.closest('button'); if (!b) return;
-        var li = b.closest('li');
-        if (b.hasAttribute('data-up') && li.previousElementSibling) ul.insertBefore(li, li.previousElementSibling);
-        if (b.hasAttribute('data-down') && li.nextElementSibling) ul.insertBefore(li.nextElementSibling, li);
-        b.focus();
-      };
+      dragTiles(ul);
+      ul.addEventListener('change', function (e) { if (e.target.dataset.col) e.target.closest('li').classList.toggle('on', e.target.checked); });
       var saveReport = function (cols) {
         var to = document.getElementById('repto').value.split(/[,;\s]+/).map(function (x) { return x.trim().toLowerCase(); }).filter(Boolean);
         var bad = to.filter(function (x) { return !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x); });

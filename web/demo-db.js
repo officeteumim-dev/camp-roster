@@ -164,7 +164,7 @@
         campers: kids.filter(function (c) { return c.family_id === f.id; }).sort(function (a, b) { return a.first_name.localeCompare(b.first_name); }).map(function (c) {
           var fields = {}; (db.camper_fields || []).forEach(function (x) { if (x.camper_id === c.id && x.value != null) fields[x.item_key] = x.value; });
           var h = (db.camper_health || []).find(function (x) { return x.camper_id === c.id; });
-          return { id: c.id, name: (c.first_name + ' ' + c.last_name).trim(), grade: c.grade, gender: c.gender, dob: c.date_of_birth, hebrew_name: c.hebrew_name, staff_child: c.staff_child, fields: fields,
+          return { id: c.id, name: (c.first_name + ' ' + c.last_name).trim(), first_name: c.first_name, last_name: c.last_name, grade: c.grade, gender: c.gender, dob: c.date_of_birth, hebrew_name: c.hebrew_name, staff_child: c.staff_child, fields: fields,
             legal_name: [c.legal_first, c.legal_last].filter(Boolean).join(' ') || null, campflow_camper_id: String(c.external_id || '').replace(/^(campflow:camper|test):?/, '') || null, alert: h ? h.alert : null,
             bunks: db.bunk_assignments.filter(function (a) { return a.camper_id === c.id; }).map(function (a) { var b = db.bunks.find(function (x) { return x.id === a.bunk_id; }); return b ? b.name : ''; }).filter(Boolean),
             missing_forms: db.requirements.filter(function (r) { return r.active && ['missing', 'rejected'].indexOf(statusFor(db, r, f, r.scope === 'camper' ? c.id : null)) >= 0; }).sort(function (a, b) { return a.sort - b.sort; }).map(function (r) { return r.label; }),

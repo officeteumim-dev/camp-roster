@@ -327,7 +327,22 @@ if (!/Past reports/.test(rep) || !/So far for the next report/.test(rep)) errors
 await demo.goto('http://app.test/#settings'); await demo.waitForTimeout(500);
 await demo.locator('[data-col="parents"]').uncheck(); await demo.locator('[data-col="phone"]').check();
 await demo.locator('[data-col="missing"]').check(); await demo.locator('[data-col="balance"]').check(); await demo.locator('[data-col="mother"]').check();
-await demo.locator('#repcols li', { has: demo.locator('[data-col="phone"]') }).locator('[data-up]').click();
+// Drag Phone up to the top of the list by its dots (the page scrolls while dragging near the top edge).
+{
+  const grip = demo.locator('#repcols li', { has: demo.locator('[data-col="phone"]') }).locator('.grip');
+  await grip.scrollIntoViewIfNeeded();
+  const g = await grip.boundingBox();
+  await demo.mouse.move(g.x + g.width / 2, g.y + g.height / 2); await demo.mouse.down();
+  for (let i = 1; i <= 10; i++) { await demo.mouse.move(g.x + g.width / 2, g.y + (20 - g.y) * i / 10); await demo.waitForTimeout(30); }
+  for (let i = 0; i < 80 && (await demo.locator('#repcols li').first().boundingBox()).y < 120; i++) { await demo.mouse.move(g.x + g.width / 2, 20 + (i % 2)); await demo.waitForTimeout(40); }
+  const first = await demo.locator('#repcols li').first().boundingBox();
+  await demo.mouse.move(g.x + g.width / 2, 300); await demo.waitForTimeout(50);   // out of the scrolling edge
+  const first2 = await demo.locator('#repcols li').first().boundingBox();
+  await demo.mouse.move(g.x + g.width / 2, first2.y + 5); await demo.waitForTimeout(50);
+  await demo.mouse.up();
+  const top = await demo.locator('#repcols li').first().locator('[data-col]').getAttribute('data-col');
+if (top !== 'phone') errors.push('dragging did not move Phone to the top: ' + top);
+}
 await demo.locator('#repto').fill('office@example.com, not an address');
 await demo.locator('#repf button.primary').click(); await demo.waitForTimeout(200);
 if (!/Check this address/.test(await demo.locator('.toast').last().innerText().catch(() => ''))) errors.push('bad report address accepted');
@@ -336,7 +351,7 @@ await demo.locator('#reportcard').screenshot({ path: path.join(out, 'demo-report
 await demo.goto('http://app.test/#reports'); await demo.waitForTimeout(600);
 await demo.locator('main table.grid a[href^="#reports/"]').first().click(); await demo.waitForTimeout(500);
 const rh = (await demo.locator('main table.grid thead').first().innerText().catch(() => '')).replace(/\s+/g, ' ');
-if (!/Phone/i.test(rh) || /Parents/i.test(rh) || !/Forms missing/i.test(rh) || !/Balance/i.test(rh) || !/Mother/i.test(rh)) errors.push('report columns not applied: ' + rh);
+if (!/^PHONE CAMPER/i.test(rh.trim()) || /Parents/i.test(rh) || !/Forms missing/i.test(rh) || !/Balance/i.test(rh) || !/Mother/i.test(rh)) errors.push('report columns not applied: ' + rh);
 await demo.screenshot({ path: path.join(out, 'demo-report.png'), fullPage: true });
 await demo.goto('http://app.test/#reports'); await demo.waitForTimeout(500);
 const beforeRuns = await demo.locator('main table.grid a[href^="#reports/"]').count();

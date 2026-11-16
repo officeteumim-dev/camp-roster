@@ -42,6 +42,9 @@ const ageOn = (dob, on) => { if (!dob) return ''; const b = new Date(dob + 'T12:
 // Columns a director can choose for the report (web/app.js has the same list for Settings and the Reports tab).
 // The camper's name is always the first column.
 export const REPORT_COLUMNS = [
+  ['name', 'Camper', (c) => c.name],
+  ['last', 'Last name', (c) => c.last_name || String(c.name || '').split(' ').slice(1).join(' ')],
+  ['first', 'First name', (c) => c.first_name || String(c.name || '').split(' ')[0]],
   ['grade', 'Grade', (c) => c.grade],
   ['sessions', 'Sessions', (c) => (c.sessions || []).join(' & ')],
   ['parents', 'Parents', (c, f) => f.parents],
@@ -55,7 +58,7 @@ export const REPORT_COLUMNS = [
   ['email', 'Email', (c, f) => f.email],
   ['hebrew', 'Hebrew name', (c) => c.hebrew_name],
   ['staffchild', 'Staff child', (c) => c.staff_child ? 'Yes' : ''],
-  ['campflow', 'Camp Flow family #', (c, f) => f.campflow_id],
+  ['campflow', 'Camp Flow family ID', (c, f) => f.campflow_id],
   ['father', 'Father', (c, f) => f.father],
   ['father_phone', 'Father phone', (c, f) => f.father_phone],
   ['father_email', 'Father email', (c, f) => f.father_email],
@@ -72,13 +75,14 @@ export const REPORT_COLUMNS = [
   ['alert', 'Medical alert', (c) => c.alert],
   ['bunk', 'Bunk', (c) => (c.bunks || []).join(', ')],
   ['legal', 'Legal name', (c) => c.legal_name],
-  ['camper_id', 'Camp Flow camper #', (c) => c.campflow_camper_id]
+  ['camper_id', 'Camp Flow camper ID', (c) => c.campflow_camper_id]
 ];
-export const REPORT_DEFAULT = ['grade', 'sessions', 'parents', 'city', 'applied', 'newfamily'];
+export const REPORT_DEFAULT = ['name', 'grade', 'sessions', 'parents', 'city', 'applied', 'newfamily'];
 
 // The columns to use: the director's choice (keys; "f_..." are the camp's own camper details), in that order.
 export function reportColumns(chosen, customLabels = {}) {
-  const keys = Array.isArray(chosen) && chosen.length ? chosen : REPORT_DEFAULT;
+  let keys = Array.isArray(chosen) && chosen.length ? chosen : REPORT_DEFAULT;
+  if (!keys.some(k => k === 'name' || k === 'first' || k === 'last')) keys = ['name'].concat(keys);   // every report says who
   return keys.map(k => {
     const b = REPORT_COLUMNS.find(x => x[0] === k);
     if (b) return { key: k, label: b[1], get: b[2] };
@@ -93,13 +97,13 @@ export function buildReportEmail(camp, data, appUrl, tz = 'America/New_York', co
   const subject = `${camp.name}: ${n ? `${n} new camper${n === 1 ? '' : 's'}` : 'no new registrations'} (${new Date(data.to).toLocaleDateString('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric' })})`;
   const head = n ? `${n} new camper${n === 1 ? '' : 's'} from ${data.families} famil${+data.families === 1 ? 'y' : 'ies'} (${data.new_families} new to camp).` : 'No new registrations.';
   const rows = [];
-  for (const f of data.list) for (const c of f.campers) rows.push([c.name].concat(columns.map(col => String(col.get(c, f, tz, data) ?? ''))));
+  for (const f of data.list) for (const c of f.campers) rows.push(columns.map(col => String(col.get(c, f, tz, data) ?? '')));
   const text = `Daily registration report\n${period}\n\n${head}\n\n` + rows.map(r => '- ' + r.filter(Boolean).join(', ')).join('\n') + `\n\nAll reports: ${appUrl}/#reports\n`;
   const th = 'text-align:left;padding:6px 10px 6px 0;border-bottom:1px solid #c9c6bd;font-size:13px;color:#66645e;font-weight:600';
   const td = 'padding:6px 10px 6px 0;border-bottom:1px solid #e4e2dc;vertical-align:top';
   const html = `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.5;color:#1d1d1b;max-width:900px">
 <p style="margin:0;color:#66645e">${esc(camp.name)} · daily registration report</p><h2 style="margin:4px 0 2px">${esc(head)}</h2><p style="margin:0 0 14px;color:#66645e">${esc(period)}</p>
-${rows.length ? `<table style="border-collapse:collapse;width:100%"><tr><th style="${th}">Camper</th>${columns.map(c => `<th style="${th}">${esc(c.label)}</th>`).join('')}</tr>${rows.map(r => `<tr>${r.map((v, i) => `<td style="${td}">${i === 0 ? `<strong>${esc(v)}</strong>` : esc(v)}</td>`).join('')}</tr>`).join('')}</table>` : ''}
+${rows.length ? `<table style="border-collapse:collapse;width:100%"><tr>${columns.map(c => `<th style="${th}">${esc(c.label)}</th>`).join('')}</tr>${rows.map(r => `<tr>${r.map((v, i) => `<td style="${td}">${['name', 'first', 'last'].includes(columns[i].key) ? `<strong>${esc(v)}</strong>` : esc(v)}</td>`).join('')}</tr>`).join('')}</table>` : ''}
 <p style="margin-top:18px"><a href="${esc(appUrl)}/#reports" style="color:#1f5fae">All reports in the roster app</a></p></div>`;
   return { subject, text, html };
 }
