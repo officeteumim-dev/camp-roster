@@ -516,6 +516,15 @@
       sfsp_connection: function () { if (me.role !== 'director') return null; var s = db.camp_secrets[0]; return { sfsp_camp_id: s.sfsp_camp_id, sfsp_form_url: s.sfsp_form_url, has_secret: true, last_message: null }; },
       set_sfsp_connection: function (a) { if (me.role !== 'director') notAllowed(); var s = db.camp_secrets[0]; s.sfsp_camp_id = a.p_sfsp_camp_id || s.sfsp_camp_id; s.sfsp_form_url = a.p_form_url || s.sfsp_form_url; save(); return null; },
       log_file_view: function () { return null; },
+      report_now: function () {
+        if (!canAny('reports', 'see')) notAllowed();
+        var last = (db.daily_reports || []).map(function (r) { return r.period_end; }).sort().pop();
+        var now = new Date(), to = now.toISOString(), from = last || new Date(now - 864e5).toISOString();
+        var d = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+        var row = { id: 'dr-now-' + now.getTime(), camp_id: CAMP, report_date: d, period_start: from, period_end: to, data: reportData(db, from, to), sent_to: ['you (practice: no email is sent)'], error: null, manual: true, run_by: email || null, created_at: to };
+        db.daily_reports.push(row); save();
+        return { id: row.id, made: true, campers: row.data.campers, sent: 0 };
+      },
       registration_preview: function () {
         if (!canAny('reports', 'see')) notAllowed();
         var last = (db.daily_reports || []).map(function (r) { return r.period_end; }).sort().pop();

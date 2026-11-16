@@ -26,7 +26,12 @@
         auth: {
           getSession: function () { return Promise.resolve({ data: { session: window.FAKE.session } }); },
           onAuthStateChange: function () { return { data: { subscription: { unsubscribe: function () {} } } }; },
-          signOut: function () { return Promise.resolve({}); }, signInWithOAuth: function () {}, signInWithOtp: function () { return Promise.resolve({}); }
+          signOut: function () { return Promise.resolve({}); },
+          signInWithPassword: function (c) { window.FAKE.signIns = (window.FAKE.signIns || []).concat([c.email]); return Promise.resolve({ data: {}, error: { message: 'Invalid login credentials' } }); },
+          signUp: function () { return Promise.resolve({ data: { session: null }, error: null }); },
+          resetPasswordForEmail: function () { return Promise.resolve({ data: {}, error: null }); },
+          updateUser: function () { return Promise.resolve({ data: {}, error: null }); },
+          setSession: function () { return Promise.resolve({ data: {}, error: null }); }, signInWithOAuth: function () {}, signInWithOtp: function () { return Promise.resolve({}); }
         },
         from: builder,
         rpc: function (name, args) { var f = window.FAKE.rpc[name]; return Promise.resolve({ data: typeof f === 'function' ? f(args) : f, error: null }); },

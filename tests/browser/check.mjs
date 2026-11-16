@@ -189,6 +189,21 @@ if (!(await small.locator('.foot-brand .logo').isVisible())) errors.push('logo m
 await small.locator('#drawer nav a', { hasText: 'Bunks' }).click(); await small.waitForTimeout(400);
 if (!/#bunks$/.test(small.url()) || await small.locator('#drawer').evaluate(d => d.classList.contains('open'))) errors.push('phone menu link did not go to Bunks and close');
 
+// Signed out: Google pop-up, or email and password on the page (works inside a home-screen app).
+const OUT = JSON.parse(JSON.stringify(FAKE)); OUT.session = null;
+const so = await newPage(390, OUT);
+await so.goto('http://app.test/'); await so.waitForTimeout(400);
+await so.screenshot({ path: path.join(out, 'signin-phone.png'), fullPage: true });
+await so.locator('#em').fill('me@example.com'); await so.locator('#pwd').fill('wrongpassword'); await so.locator('#pw button').click(); await so.waitForTimeout(300);
+if (!(await so.evaluate(() => (window.FAKE.signIns || []).includes('me@example.com')))) errors.push('password sign-in not tried');
+if (!/don't match/.test(await so.locator('.toast').last().innerText().catch(() => ''))) errors.push('wrong password message missing');
+await so.getByRole('link', { name: 'Create an account' }).click(); await so.waitForTimeout(200);
+await so.locator('#em').fill('me@example.com'); await so.locator('#pwd').fill('longenough1'); await so.locator('#pw button').click(); await so.waitForTimeout(300);
+if (!/confirm the address/.test(await so.locator('main').innerText())) errors.push('sign-up confirm message missing');
+await so.getByRole('link', { name: 'Forgot password?' }).click(); await so.waitForTimeout(200);
+if (await so.locator('#pwd').count()) errors.push('forgot form asks for a password');
+await so.context().close();
+
 // The public: signed in but on no camp. Until the owner opens Camp Test Site to everyone, they can only ask to open a camp.
 const STRANGER = JSON.parse(JSON.stringify(FAKE)); STRANGER.rpc.my_access = []; STRANGER.session.user.email = 'stranger@example.com';
 STRANGER.rpc.site_info = { admin: false, public_test_camp: false, my_request: null };
@@ -322,6 +337,13 @@ await demo.locator('main table.grid a[href^="#reports/"]').first().click(); awai
 const rh = (await demo.locator('main table.grid thead').first().innerText().catch(() => '')).replace(/\s+/g, ' ');
 if (!/Phone/i.test(rh) || /Parents/i.test(rh)) errors.push('report columns not applied: ' + rh);
 await demo.screenshot({ path: path.join(out, 'demo-report.png'), fullPage: true });
+await demo.goto('http://app.test/#reports'); await demo.waitForTimeout(500);
+const beforeRuns = await demo.locator('main table.grid a[href^="#reports/"]').count();
+await demo.locator('#runnow').click(); await demo.waitForTimeout(600);
+if (!/#reports\/dr-now-/.test(demo.url())) errors.push('Run report now did not open the new report: ' + demo.url());
+await demo.goto('http://app.test/#reports'); await demo.waitForTimeout(500);
+if (await demo.locator('main table.grid a[href^="#reports/"]').count() !== beforeRuns + 1) errors.push('run-now report not in the list');
+await demo.screenshot({ path: path.join(out, 'demo-reports.png'), fullPage: true });
 await viewAs('counselor@bunk-boys-1');
 if (/Reports/.test(await nav())) errors.push('counselor sees Reports');
 await viewAs('office');

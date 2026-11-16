@@ -39,6 +39,7 @@
     if (S.demo) {
       if (name === 'notify' && body.action === 'link') return Promise.resolve({ link: location.origin + '/portal.html?demo=' + encodeURIComponent(body.family_ids[0]) });
       if (name === 'notify' && body.action === 'rejected') return Promise.resolve({ sent: 0 });
+      if (name === 'notify' && body.action === 'report_now') return DB.rpc('report_now', {}).then(must);
       if (name === 'notify') return Promise.reject(said('Emails aren\'t sent from ' + DEMO.NAME + '. In your own camp, this emails the families.'));
       return Promise.reject(said('Imports are turned off in ' + DEMO.NAME + '. In your own camp, Camp Flow reports are imported here.'));
     }
@@ -52,32 +53,59 @@
   }
 
   // ---------- sign in ----------
-  function showSignIn(msg) {
+  // Like the SFSP app: Google opens in a pop-up and email + password stays on this page, so a home-screen app
+  // signs itself in (a full-page redirect or an emailed link would sign in the phone's browser instead).
+  function showSignIn(msg, mode) {
     hideChrome();
-    $main.innerHTML = '<div class="card signin"><span class="logo" role="img" aria-label="Camp Roster by W Group"></span><h1>Camp Roster</h1><p class="muted">Rosters, registration and health forms for camps. Staff: sign in with the email address your camp office added for you. Running a camp? Sign in to ask to open one.</p>' +
-      (msg ? '<div class="error">' + esc(msg) + '</div>' : '') +
-      '<p><button class="primary" id="g">Sign in with Google</button></p><hr style="border:0;border-top:1px solid var(--line);margin:18px 0">' +
-      '<form id="ml"><label class="field">Or get a sign-in link by email<input type="email" id="em" required autocomplete="email"></label><button>Email me a link</button></form></div>';
-    document.getElementById('g').onclick = function () { sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + '/' } }); };
-    document.getElementById('ml').onsubmit = function (e) {
+    mode = mode || 'in';
+    var title = { in: 'Sign in', up: 'Create an account', forgot: 'Reset your password', reset: 'Choose a new password' }[mode];
+    $main.innerHTML = '<div class="card signin"><span class="logo" role="img" aria-label="Camp Roster by W Group"></span><h1>Camp Roster</h1>' +
+      (mode === 'in' ? '<p class="muted">Rosters, registration and health forms for camps.</p>' : '<h2 style="font-size:16px;margin:4px 0 10px">' + title + '</h2>') +
+      (msg ? '<div class="' + (/^✓/.test(msg) ? 'notice' : 'error') + '">' + esc(msg.replace(/^✓\s*/, '')) + '</div>' : '') +
+      (mode === 'in' || mode === 'up' ? '<p><button class="primary" id="g" style="width:100%">Continue with Google</button></p><div class="or"><span>or</span></div>' : '') +
+      '<form id="pw">' +
+      (mode !== 'reset' ? '<label class="field">Email<input type="email" id="em" required autocomplete="email"></label>' : '') +
+      (mode !== 'forgot' ? '<label class="field">' + (mode === 'reset' ? 'New password' : 'Password') + '<input type="password" id="pwd" required minlength="8" autocomplete="' + (mode === 'in' ? 'current-password' : 'new-password') + '"></label>' : '') +
+      '<button class="primary" style="width:100%">' + { in: 'Sign in', up: 'Create account', forgot: 'Email me a reset link', reset: 'Save password' }[mode] + '</button></form>' +
+      '<p class="small" style="margin-top:14px;text-align:center">' +
+      (mode === 'in' ? '<a href="#" data-mode="forgot">Forgot password?</a> · New here? <a href="#" data-mode="up">Create an account</a>' : mode === 'reset' ? '' : '<a href="#" data-mode="in">Back to sign in</a>') + '</p></div>';
+    [].forEach.call($main.querySelectorAll('[data-mode]'), function (a) { a.onclick = function (e) { e.preventDefault(); showSignIn(null, a.dataset.mode); }; });
+    var g = document.getElementById('g'); if (g) g.onclick = googleSignIn;
+    document.getElementById('pw').onsubmit = function (e) {
       e.preventDefault();
-      sb.auth.signInWithOtp({ email: document.getElementById('em').value.trim(), options: { emailRedirectTo: location.origin + '/', shouldCreateUser: true } })
-        .then(function (r) {
-          if (r.error) throw r.error;
-          // The code works where the link can't: in the home-screen app, a link opens the browser instead and signs that in.
-          var email = document.getElementById('em').value.trim();
-          var f = $main.querySelector('form');
-          f.outerHTML = '<form id="codef"><p>We emailed <strong>' + esc(email) + '</strong>. Tap the link in the email, or type the code from it here:</p>' +
-            '<label class="field">Code<input type="text" id="otp" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,10}" maxlength="10" required></label><button class="primary">Sign in</button></form>';
-          document.getElementById('otp').focus();
-          document.getElementById('codef').onsubmit = function (e2) {
-            e2.preventDefault();
-            sb.auth.verifyOtp({ email: email, token: document.getElementById('otp').value.replace(/\s/g, ''), type: 'email' })
-              .then(function (v) { if (v.error) throw said('That code didn\'t work. Check it, or ask for a new email.'); }).catch(fail);
-          };
-        }).catch(fail);
+      var em = document.getElementById('em'), pw = document.getElementById('pwd');
+      var email = em && em.value.trim().toLowerCase(), pass = pw && pw.value;
+      var btn = e.target.querySelector('button'); btn.disabled = true;
+      var done = function () { btn.disabled = false; };
+      var go = mode === 'in' ? sb.auth.signInWithPassword({ email: email, password: pass }).then(function (r) {
+          if (r.error) throw said(/confirm/i.test(r.error.message) ? 'Please confirm your email first: open the link we sent you, then sign in here.' : 'That email and password don\'t match. Try again, or use "Forgot password?".');
+          start();
+        })
+        : mode === 'up' ? sb.auth.signUp({ email: email, password: pass, options: { emailRedirectTo: location.origin + '/' } }).then(function (r) {
+          if (r.error) throw said(r.error.message);
+          if (r.data.session) return start();
+          showSignIn('✓ Almost done: we emailed ' + email + ' a link to confirm the address. Open it, then sign in here.', 'in');
+        })
+        : mode === 'forgot' ? sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + '/' }).then(function (r) {
+          if (r.error) throw said(r.error.message);
+          showSignIn('✓ If ' + email + ' has an account, we emailed it a link to choose a new password.', 'in');
+        })
+        : sb.auth.updateUser({ password: pass }).then(function (r) { if (r.error) throw said(r.error.message); toast('Password saved'); start(); });
+      go.catch(fail).then(done);
     };
   }
+  function googleSignIn() {
+    sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + '/?popup=1', skipBrowserRedirect: true, queryParams: { prompt: 'select_account' } } }).then(function (r) {
+      if (r.error) throw r.error;
+      var w = window.open(r.data.url, 'roster-google', 'width=500,height=650');
+      if (!w) location.href = r.data.url;   // pop-ups blocked: go the long way round
+    }).catch(fail);
+  }
+  // The Google pop-up lands back here: hand the sign-in to the app window and close.
+  window.addEventListener('message', function (e) {
+    if (e.origin !== location.origin || !e.data || e.data.type !== 'roster-signed-in') return;
+    sb.auth.setSession({ access_token: e.data.access_token, refresh_token: e.data.refresh_token }).then(function (r) { if (r.error) throw r.error; if (!S.camp) start(); }).catch(fail);
+  });
 
   function start() {
     // A failed Google or email sign-in comes back as ?error_description=... : say so instead of a silent sign-in page.
@@ -85,10 +113,16 @@
     if (q.get('error_description')) {
       var why = q.get('error_description');
       history.replaceState(null, '', location.pathname);
-      return showSignIn('Sign-in didn\'t work: ' + why.replace(/\+/g, ' ') + '. Try again, or use the emailed link instead.');
+      return showSignIn('Sign-in didn\'t work: ' + why.replace(/\+/g, ' ') + '. Try again, or use your email and password.');
     }
     sb.auth.getSession().then(function (r) {
       var s = r.data.session;
+      if (/[?&]popup=1/.test(location.search) && window.opener) {
+        try { if (s) window.opener.postMessage({ type: 'roster-signed-in', access_token: s.access_token, refresh_token: s.refresh_token }, location.origin); } catch (e) { }
+        if (s) { $main.innerHTML = '<div class="card signin"><p>Signed in. You can close this window.</p></div>'; window.close(); return; }
+      }
+      if (/[?&]popup=1/.test(location.search)) history.replaceState(null, '', location.pathname);
+      if (S.recovering) return showSignIn(null, 'reset');
       if (!s) return showSignIn();
       S.user = s.user;
       return Promise.all([sb.rpc('my_access'), sb.rpc('site_info')]).then(function (res) {
@@ -1024,12 +1058,23 @@
       if (shown) html += '<p class="noprint"><a href="#reports">← All reports</a></p><div class="card"><h2 style="margin-top:0">' + esc(new Date(shown.report_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })) + '</h2>' + reportTable(shown.data) +
         '<p class="small muted">' + (shown.error ? '<span class="chip bad">Email failed</span> ' + esc(shown.error) : shown.sent_to.length ? 'Emailed to ' + esc(shown.sent_to.join(', ')) : 'Not emailed') + '</p><button class="noprint" onclick="print()">Print</button></div>';
       if (!id) {
-        html += '<div class="card"><h2 style="margin-top:0">So far for the next report</h2>' + reportTable(prev) + '</div>';
+        html += '<div class="card"><div class="row" style="justify-content:space-between;align-items:center"><h2 style="margin:0">So far for the next report</h2><button class="primary" id="runnow">Run report now</button></div>' + reportTable(prev) + '</div>';
         html += '<div class="card"><h2 style="margin-top:0">Past reports</h2>' + (list.length ? '<table class="grid"><thead><tr><th>Date</th><th>New campers</th><th>Families</th><th>Emailed</th></tr></thead><tbody>' + list.map(function (x) {
-          return '<tr><td><a href="#reports/' + esc(x.id) + '">' + esc(new Date(x.report_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })) + '</a></td><td>' + esc(x.data.campers) + '</td><td>' + esc(x.data.families) + '</td><td class="small">' + (x.error ? '<span class="chip bad">failed</span>' : x.sent_to.length ? esc(x.sent_to.length + ' ' + (x.sent_to.length === 1 ? 'person' : 'people')) : '') + '</td></tr>';
+          return '<tr><td><a href="#reports/' + esc(x.id) + '">' + esc(new Date(x.report_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })) + '</a>' + (x.manual ? ' <span class="small muted">run at ' + esc(new Date(x.period_end).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })) + (x.run_by ? ' by ' + esc(x.run_by) : '') + '</span>' : '') + '</td><td>' + esc(x.data.campers) + '</td><td>' + esc(x.data.families) + '</td><td class="small">' + (x.error ? '<span class="chip bad">failed</span>' : x.sent_to.length ? esc(x.sent_to.length + ' ' + (x.sent_to.length === 1 ? 'person' : 'people')) : '') + '</td></tr>';
         }).join('') + '</tbody></table>' : '<p class="muted">The first report arrives at 8:00 tomorrow morning (or Sunday, if tomorrow is Saturday).</p>') + '</div>';
       }
       $main.innerHTML = html;
+      var rn = document.getElementById('runnow');
+      if (rn) rn.onclick = function () {
+        var n = +prev.campers, who = isDirector() ? ((st.report_to && st.report_to.length) ? st.report_to.join(', ') : 'the directors') : 'everyone on the report list';
+        if (!confirm('Email a report of ' + (n ? n + ' new camper' + (n === 1 ? '' : 's') : 'no new registrations') + ' since ' + when(prev.from) + ' to ' + who + ' now?\n\nTomorrow\'s 8:00 report will start from now.')) return;
+        rn.disabled = true;
+        fn('notify', { camp: S.camp.id, action: 'report_now' }).then(function (r) {
+          toast(S.demo ? 'Report made (practice camp: no email is sent).' : r.error ? 'Report made, but the email failed: ' + r.error : 'Report emailed to ' + r.sent + (r.sent === 1 ? ' person' : ' people') + '.');
+          location.hash = r.id ? '#reports/' + r.id : '#reports';
+          if (!r.id) reportsPage();
+        }).catch(function (e) { rn.disabled = false; fail(e); });
+      };
     }).catch(fail);
   }
 
@@ -1170,6 +1215,10 @@
     };
   } catch (e) { }
 
-  sb.auth.onAuthStateChange(function (ev) { if (ev === 'SIGNED_IN' && !S.camp) start(); });
+  sb.auth.onAuthStateChange(function (ev) {
+    if (ev === 'PASSWORD_RECOVERY') { S.recovering = true; return showSignIn(null, 'reset'); }
+    if (ev === 'USER_UPDATED') S.recovering = false;
+    if (ev === 'SIGNED_IN' && !S.camp && !S.recovering) start();
+  });
   start();
 })();

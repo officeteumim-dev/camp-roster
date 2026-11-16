@@ -400,12 +400,19 @@ do $$ declare r jsonb; begin
   assert (registration_report('00000000-0000-0000-0000-0000000000c1', now() - interval '1 hour', now()) ->> 'campers')::int = 0, 'outside the window';
   assert (registration_report('00000000-0000-0000-0000-0000000000c2', now() - interval '24 hours', now()) ->> 'campers')::int = 0, 'other camp';
   insert into daily_reports (camp_id, report_date, period_start, period_end, data) values ('00000000-0000-0000-0000-0000000000c1', current_date, now() - interval '1 day', now() - interval '150 minutes', '{}');
+  -- Run-now reports can be made any number of times a day; the 8 a.m. one only once.
+  insert into daily_reports (camp_id, report_date, period_start, period_end, data, manual) values ('00000000-0000-0000-0000-0000000000c1', current_date, now() - interval '150 minutes', now() - interval '140 minutes', '{}', true),
+    ('00000000-0000-0000-0000-0000000000c1', current_date, now() - interval '140 minutes', now() - interval '130 minutes', '{}', true);
+  begin
+    insert into daily_reports (camp_id, report_date, period_start, period_end, data) values ('00000000-0000-0000-0000-0000000000c1', current_date, now(), now(), '{}');
+    raise exception 'two scheduled reports in a day';
+  exception when unique_violation then null; end;
 end $$;
 reset role;
 do $$ begin perform pg_temp.as_user('office@x.org'); end $$;
 do $$ begin
   assert (registration_preview('00000000-0000-0000-0000-0000000000c1') ->> 'campers')::int = 1, 'preview starts where the last report ended';
-  assert (select count(*) from daily_reports) = 1, 'office sees reports';
+  assert (select count(*) from daily_reports) = 3, 'office sees reports';
 end $$;
 reset role;
 do $$ begin perform pg_temp.as_user('coun@x.org'); end $$;

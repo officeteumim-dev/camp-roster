@@ -4,12 +4,13 @@
 // POST {camp, action:'rejected', family_ids}      → "please send again" after the infirmary sends a form back
 // POST {camp, action:'link', family_ids:[id]}      → a fresh family link to copy (director or office)
 // POST {action:'daily_report'} with x-cron-key     → the 8 a.m. registration report
+// POST {camp, action:'report_now'}                 → a report of everything since the last one, emailed now (who can see reports)
 // POST {action:'camp_request', id}                 → tells the site owner a new camp request came in (once per request)
 // POST {action:'camp_request_answer', id}          → tells the requester it was approved or declined (site owner only, once)
 import { admin, env, json, fail, cors, staffFor, sameText, must } from '../_shared/server.js';
 import { newFamilyLink, sfspLink } from '../_shared/links.js';
 import { dueEmail, buildEmail } from '../_shared/reminders.js';
-import { reportDue, buildReportEmail, reportColumns } from '../_shared/reports.js';
+import { reportDue, buildReportEmail, reportColumns, zoned } from '../_shared/reports.js';
 import { appUrl } from '../_shared/links.js';
 
 Deno.serve(async req => {
@@ -42,6 +43,11 @@ Deno.serve(async req => {
     const { data: camp } = await db.from('camps').select('*').eq('id', body.camp || '').maybeSingle();
     if (!camp) return fail('Unknown camp', 404);
     const me = await staffFor(req, db, camp.id);
+    if (body.action === 'report_now') {
+      // Anyone who can see reports may send one now (directors always).
+      if (!me || !(me.roles.includes('director') || await me.can('reports', 'see'))) return fail('Not allowed', 403);
+      return json(await reportNow(db, camp, me.email));
+    }
     // Reminders and family links: Forms checklist (change). "Please send again": Health forms (change).
     if (!me || !(await me.can(body.action === 'rejected' ? 'health_forms' : 'form_status', 'change'))) return fail('Not allowed', 403);
     const ids = Array.isArray(body.family_ids) ? body.family_ids.slice(0, 2000) : [];
@@ -121,16 +127,31 @@ async function dailyReport(db, camp, now) {
   const s = camp.settings || {};
   if (s.report_enabled === false) return { skipped: 'turned off' };
   const tz = camp.timezone || 'America/New_York';
-  const { data: last } = await db.from('daily_reports').select('report_date, period_end').eq('camp_id', camp.id).order('period_end', { ascending: false }).limit(1).maybeSingle();
-  const due = reportDue(now, tz, last?.period_end || null, { lastDate: last?.report_date || null });
+  const { data: last } = await db.from('daily_reports').select('period_end').eq('camp_id', camp.id).order('period_end', { ascending: false }).limit(1).maybeSingle();
+  const { data: lastAuto } = await db.from('daily_reports').select('report_date').eq('camp_id', camp.id).eq('manual', false).order('period_end', { ascending: false }).limit(1).maybeSingle();
+  const due = reportDue(now, tz, last?.period_end || null, { lastDate: lastAuto?.report_date || null });
   if (!due.due) return { skipped: 'not due' };
-  const data = must(await db.rpc('registration_report', { p_camp: camp.id, p_from: due.from, p_to: due.to }), 'report');
-  const ins = await db.from('daily_reports').insert({ camp_id: camp.id, report_date: due.date, period_start: due.from, period_end: due.to, data }).select('id').single();
+  return makeReport(db, camp, { date: due.date, from: due.from, to: due.to, manual: false });
+}
+
+// "Run report now" (Reports tab): everything since the last report, emailed now.
+async function reportNow(db, camp, by) {
+  const tz = camp.timezone || 'America/New_York';
+  const now = new Date();
+  const { data: last } = await db.from('daily_reports').select('period_end').eq('camp_id', camp.id).order('period_end', { ascending: false }).limit(1).maybeSingle();
+  const from = last?.period_end ? new Date(last.period_end).toISOString() : new Date(now.getTime() - 24 * 3600e3).toISOString();
+  return makeReport(db, camp, { date: zoned(now, tz).date, from, to: now.toISOString(), manual: true, by });
+}
+
+async function makeReport(db, camp, { date, from, to, manual, by = null }) {
+  const s = camp.settings || {}, tz = camp.timezone || 'America/New_York';
+  const data = must(await db.rpc('registration_report', { p_camp: camp.id, p_from: from, p_to: to }), 'report');
+  const ins = await db.from('daily_reports').insert({ camp_id: camp.id, report_date: date, period_start: from, period_end: to, data, manual, run_by: by }).select('id').single();
   if (ins.error) return { skipped: 'already made today' };   // another run got there first
   // Recipients: the list in Settings, or else the camp's directors.
-  let to = Array.isArray(s.report_to) ? s.report_to.filter(e => /@/.test(e)) : [];
-  if (!to.length) to = (must(await db.from('staff').select('email').eq('camp_id', camp.id).eq('role', 'director'), 'directors') || []).map(r => r.email);
-  if (!to.length) return { made: true, sent: 0 };
+  let to_ = Array.isArray(s.report_to) ? s.report_to.filter(e => /@/.test(e)) : [];
+  if (!to_.length) to_ = (must(await db.from('staff').select('email').eq('camp_id', camp.id).eq('role', 'director'), 'directors') || []).map(r => r.email);
+  if (!to_.length) return { id: ins.data.id, made: true, sent: 0 };
   const { data: items } = await db.from('perm_items').select('key, label').eq('camp_id', camp.id).eq('kind', 'field');
   const labels = Object.fromEntries((items || []).map(i => [i.key, i.label]));
   const email = buildReportEmail(camp, data, appUrl(), tz, reportColumns(s.report_columns, labels));
@@ -138,12 +159,12 @@ async function dailyReport(db, camp, now) {
   try {
     const r = await fetch('https://api.resend.com/emails', {
       method: 'POST', headers: { Authorization: `Bearer ${env('RESEND_API_KEY')}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: env('MAIL_FROM') || `${camp.name} <office@wgcamps.com>`, to, reply_to: s.reply_to || undefined, subject: email.subject, html: email.html, text: email.text })
+      body: JSON.stringify({ from: env('MAIL_FROM') || `${camp.name} <office@wgcamps.com>`, to: to_, reply_to: s.reply_to || undefined, subject: email.subject, html: email.html, text: email.text })
     });
     if (!r.ok) error = (await r.json().catch(() => ({}))).message || `email service said ${r.status}`;
   } catch (e) { error = String(e.message || e); }
-  await db.from('daily_reports').update({ sent_to: to, error }).eq('id', ins.data.id);
-  return { made: true, campers: data.campers, sent: error ? 0 : to.length, error };
+  await db.from('daily_reports').update({ sent_to: to_, error }).eq('id', ins.data.id);
+  return { id: ins.data.id, made: true, campers: data.campers, sent: error ? 0 : to_.length, to: to_, error };
 }
 
 // ---------- Requests to open a camp ----------
