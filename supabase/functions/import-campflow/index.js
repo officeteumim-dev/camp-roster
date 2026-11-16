@@ -23,7 +23,7 @@ Deno.serve(async req => {
     via = 'email';
   } else {
     const me = await staffFor(req, db, camp.id);
-    if (!me || !me.roles.some(r => r === 'director' || r === 'office')) return fail('Not allowed', 403);
+    if (!me || !(await me.can('imports', 'change'))) return fail('Not allowed', 403);
     via = me.email;
   }
 

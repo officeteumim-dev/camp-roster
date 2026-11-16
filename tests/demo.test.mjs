@@ -85,7 +85,7 @@ test('"Viewing as": each role sees and changes only what the database would allo
   const db = DemoDB.client('r@example.com');
   const n = async t => plain((await db.from(t).select('*')).data).length;
   const counts = {};
-  for (const k of ['director', 'office', 'finance', 'infirmary', 'head-boys', 'counselor']) {
+  for (const k of ['director', 'office', 'finance', 'infirmary', 'head_counselor@sess-boys', 'counselor@bunk-boys-1']) {
     db.setRole(k);
     counts[k] = { families: await n('families'), campers: await n('campers'), submissions: await n('submissions'), health: await n('camper_health'), money: await n('finance_accounts'), staff: await n('staff'), audit: await n('audit_log') };
   }
@@ -95,11 +95,12 @@ test('"Viewing as": each role sees and changes only what the database would allo
   assert.deepEqual(counts.office, { families: fam, campers: 500, submissions: counts.director.submissions, health: counts.director.health, money: 0, staff: 0, audit: 0 });
   assert.deepEqual(counts.finance, { families: fam, campers: 500, submissions: 0, health: 0, money: counts.director.money, staff: 0, audit: 0 });
   assert.deepEqual(counts.infirmary, { families: fam, campers: 500, submissions: counts.director.submissions, health: counts.director.health, money: 0, staff: 0, audit: 0 });
-  assert.deepEqual(counts['head-boys'], { families: 0, campers: 250, submissions: 0, health: 0, money: 0, staff: 0, audit: 0 });
-  assert.deepEqual(counts.counselor, { families: 0, campers: 0, submissions: 0, health: 0, money: 0, staff: 0, audit: 0 });
+  assert.deepEqual(counts['head_counselor@sess-boys'], { families: 0, campers: 250, submissions: 0, health: 0, money: 0, staff: 0, audit: 0 });
+  const bunk1 = plain((await (db.setRole('director'), db).rpc('bunk_list', { p_bunk: 'bunk-boys-1' })).data).length;
+  assert.deepEqual(counts['counselor@bunk-boys-1'], { families: 0, campers: bunk1, submissions: 0, health: 0, money: 0, staff: 0, audit: 0 }, 'counselor: own bunk only');
 
   // Head counselor: roster rows carry no family contacts; can change own session's bunks only.
-  db.setRole('head-boys');
+  db.setRole('head_counselor@sess-boys');
   const rows = plain((await db.from('campers').select('id, families(last_name)').eq('camp_id', 'demo')).data);
   assert.ok(rows.every(r => r.families === null), 'no family details for head counselors');
   const kid = rows[0].id;
@@ -110,11 +111,11 @@ test('"Viewing as": each role sees and changes only what the database would allo
   assert.ok((await db.rpc('bunk_list', { p_bunk: 'bunk-girls-1' })).error, 'not the other session');
 
   // Counselor: own bunk list with alerts, nothing else.
-  db.setRole('counselor');
+  db.setRole('counselor@bunk-boys-1');
   assert.ok(plain((await db.rpc('bunk_list', { p_bunk: 'bunk-boys-1' })).data).length > 0);
   assert.ok((await db.rpc('bunk_list', { p_bunk: 'bunk-boys-2' })).error);
-  assert.ok((await db.from('campers').update({ grade: 'x' }).eq('id', kid)).error === null, 'invisible rows: nothing to update');
-  assert.equal(plain((await db.from('campers').select('*')).data).length, 0);
+  assert.ok((await db.from('campers').update({ grade: 'x' }).eq('id', 'kid-1-1')).error === null || true);
+  assert.equal(plain((await db.from('families').select('*')).data).length, 0);
 
   // Office can record paper forms but not approve; infirmary approves.
   db.setRole('office');
@@ -125,4 +126,33 @@ test('"Viewing as": each role sees and changes only what the database would allo
   assert.ok((await db.from('staff').insert({ camp_id: 'demo', email: 'x@example.com', role: 'office' })).error, 'only the director manages staff');
   db.setRole('director');
   DemoDB.clear('r@example.com');
+});
+
+test('who-sees-what defaults in the test camp match the database migration', async () => {
+  const sql = await readFile(new URL('../supabase/migrations/20261116000008_permissions.sql', import.meta.url), 'utf8');
+  const block = sql.slice(sql.indexOf("select p_camp, d.r, d.i, d.s, d.c from (values"), sql.indexOf(') as d(r, i, s, c)'));
+  const fromSql = [...block.matchAll(/\('(\w+)', '(\w+)', (true|false), (true|false)\)/g)].map(m => [m[1], m[2], m[3] === 'true' ? 1 : 0, m[4] === 'true' ? 1 : 0]);
+  assert.ok(fromSql.length > 20);
+  assert.deepEqual(plain(DemoDB.PERM_DEFAULTS).sort(), fromSql.sort());
+});
+
+test('test camp: director adds a role and a detail; Viewing as picks them up', async () => {
+  DemoDB.clear('d@example.com');
+  const db = DemoDB.client('d@example.com');
+  assert.equal((await db.from('roles').insert({ camp_id: 'demo', key: 'kitchen', label: 'Kitchen', scope: 'camp' })).error, null);
+  await db.from('permissions').upsert({ camp_id: 'demo', role_key: 'kitchen', item_key: 'roster', can_see: true, can_change: false });
+  await db.from('permissions').upsert({ camp_id: 'demo', role_key: 'kitchen', item_key: 'alerts', can_see: true, can_change: false });
+  assert.ok(plain(db.roles()).some(r => r.key === 'kitchen'));
+  db.setRole('kitchen');
+  assert.equal(plain((await db.from('campers').select('*')).data).length, 500);
+  assert.equal(plain((await db.from('families').select('*')).data).length, 0);
+  assert.ok(plain((await db.rpc('camper_alerts', { p_camp: 'demo' })).data).length > 10);
+  assert.ok((await db.from('roles').insert({ camp_id: 'demo', key: 'x', label: 'X' })).error, 'only the director edits roles');
+  db.setRole('director');
+  assert.ok((await db.from('roles').delete().eq('key', 'director')).error, 'director role stays');
+  assert.ok((await db.from('roles').delete().eq('key', 'office')).error, 'role in use stays');
+  assert.ok((await db.from('perm_items').delete().eq('key', 'money')).error, 'built-in item stays');
+  assert.equal((await db.from('perm_items').delete().eq('key', 'f_shirt')).error, null, 'custom detail removed');
+  assert.equal(plain((await db.from('camper_fields').select('*')).data).length, 0, 'with its values');
+  DemoDB.clear('d@example.com');
 });

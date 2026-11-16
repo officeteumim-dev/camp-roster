@@ -35,10 +35,16 @@ const FAKE = {
     form_status: status,
     bunk_list: [{ camper_id: 'k1', first_name: 'Yosef', last_name: 'Levi', grade: '8th', alert: 'Peanut allergy, EpiPen' }],
     sfsp_connection: { sfsp_camp_id: 'abc', sfsp_form_url: 'https://www.wgcamps.com/apply.html', has_secret: true },
-    log_file_view: null
+    log_file_view: null,
+    my_permissions: { director: true, items: {}, roles: [{ role: 'director', label: 'Director', scope: 'camp' }] },
+    camper_alerts: [{ camper_id: 'k1', alert: 'Peanut allergy, EpiPen' }]
   },
   tables: {
     camps: [camp], requirements: reqs,
+    roles: [{ key: 'director', label: 'Director', scope: 'camp', sort: 1 }, { key: 'office', label: 'Office', scope: 'camp', sort: 2 }, { key: 'infirmary', label: 'Infirmary', scope: 'camp', sort: 4 }, { key: 'counselor', label: 'Counselor', scope: 'bunk', sort: 6 }],
+    perm_items: [{ key: 'roster', label: 'Camper list', kind: 'builtin', sort: 1 }, { key: 'health_forms', label: 'Health forms', kind: 'builtin', sort: 4 }, { key: 'f_shirt', label: 'T-shirt size', kind: 'field', sort: 101 }],
+    permissions: [{ role_key: 'office', item_key: 'roster', can_see: true, can_change: true }],
+    camper_fields: [{ camper_id: 'k1', item_key: 'f_shirt', value: 'Youth L' }],
     sessions: [{ id: 's1', name: 'First Half' }, { id: 's2', name: 'Second Half' }],
     campers: [
       { id: 'k1', family_id: 'f1', external_id: 'campflow:camper:501', first_name: 'Yosef', last_name: 'Levi', grade: '8th', gender: 'Male', date_of_birth: '2013-03-14', active: true, hebrew_name: 'Yosef',
@@ -104,7 +110,7 @@ async function newPage(width, fake = FAKE) {
 }
 
 const page = await newPage(1360);
-for (const h of ['roster', 'forms', 'camper/k1', 'bunks', 'mybunk', 'money', 'imports', 'settings', 'activity']) {
+for (const h of ['roster', 'forms', 'camper/k1', 'settings/access', 'bunks', 'mybunk', 'money', 'imports', 'settings', 'activity']) {
   await page.goto(`http://app.test/#${h}`);
   await page.waitForTimeout(350);
   const text = await page.locator('main').innerText();
@@ -209,11 +215,11 @@ if (/trial@example.com/.test(staffText)) errors.push('Start over did not wipe ch
 // "Viewing as" each role.
 const nav = async () => (await demo.locator('nav.tabs a').allInnerTexts()).join(',');
 const viewAs = async k => { await demo.selectOption('#demorole', k); await demo.waitForTimeout(700); };
-await viewAs('counselor');
-if (await nav() !== 'My bunk') errors.push('counselor nav: ' + await nav());
+await viewAs('counselor@bunk-boys-1');
+if (await nav() !== 'Roster,My bunk') errors.push('counselor nav: ' + await nav());
 if (!/Bunk 1/.test(await demo.locator('main').innerText())) errors.push('counselor does not see Bunk 1');
 await demo.screenshot({ path: path.join(out, 'demo-as-counselor.png') });
-await viewAs('head-boys');
+await viewAs('head_counselor@sess-boys');
 if (await nav() !== 'Roster,Bunks') errors.push('head counselor nav: ' + await nav());
 await demo.goto('http://app.test/#roster'); await demo.waitForTimeout(800);
 const hc = await demo.locator('main p.small').first().innerText();
@@ -230,6 +236,29 @@ await viewAs('infirmary');
 if (/Settings|Money/.test(await nav())) errors.push('infirmary nav: ' + await nav());
 await viewAs('director');
 if (await nav() !== 'Roster,Forms,Bunks,Money,Imports,Settings,Activity') errors.push('director nav: ' + await nav());
+
+// Who can see what (test camp): add a Kitchen role that sees names and alerts, then view as Kitchen.
+await demo.goto('http://app.test/#settings/access'); await demo.waitForTimeout(600);
+await demo.screenshot({ path: path.join(out, 'demo-access.png'), fullPage: true });
+await demo.locator('#rname').fill('Kitchen'); await demo.locator('#addrole button').click(); await demo.waitForTimeout(500);
+await demo.locator('input[data-p="see"][data-r="kitchen"][data-i="roster"]').check(); await demo.waitForTimeout(200);
+await demo.locator('input[data-p="see"][data-r="kitchen"][data-i="alerts"]').check(); await demo.waitForTimeout(200);
+await demo.locator('#iname').fill('Swim level'); await demo.locator('#additem button').click(); await demo.waitForTimeout(500);
+await demo.locator('input[data-p="change"][data-r="office"][data-i="f_swim_level"]').check(); await demo.waitForTimeout(200);
+if (!(await demo.locator('input[data-p="see"][data-r="office"][data-i="f_swim_level"]').isChecked())) errors.push('Change did not tick See');
+await demo.goto('http://app.test/#roster'); await demo.waitForTimeout(600);
+await viewAs('kitchen');
+if (await nav() !== 'Roster') errors.push('kitchen nav: ' + await nav());
+await demo.goto('http://app.test/#roster'); await demo.waitForTimeout(800);
+const kh = await demo.locator('table.grid thead').innerText();
+if (!/Alert/.test(kh) || /Father/.test(kh)) errors.push('kitchen roster columns: ' + kh.replace(/\s+/g, ' '));
+await demo.screenshot({ path: path.join(out, 'demo-as-kitchen.png') });
+await viewAs('office');
+await demo.goto('http://app.test/#roster'); await demo.waitForTimeout(600);
+await demo.locator('tr.click').first().click(); await demo.waitForTimeout(600);
+if (!(await demo.locator('[data-cf="f_swim_level"]').count())) errors.push('office cannot edit the new detail');
+await demo.locator('[data-cf="f_swim_level"]').fill('Level 3'); await demo.locator('#savecf').click(); await demo.waitForTimeout(300);
+await viewAs('director');
 
 // A camper link from another camp says so instead of failing.
 await demo.goto('http://app.test/#camper/00000000-0000-0000-0000-000000000999'); await demo.waitForTimeout(400);

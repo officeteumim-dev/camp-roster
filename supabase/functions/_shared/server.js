@@ -19,7 +19,9 @@ export async function staffFor(req, db, campId) {
   if (error || !data?.user?.email) return null;
   const email = data.user.email.toLowerCase();
   const { data: rows } = await db.from('staff').select('role, session_id, bunk_id').eq('camp_id', campId).eq('email', email);
-  return { email, roles: (rows || []).map(r => r.role) };
+  // can('imports', 'change'): the camp's who-sees-what table decides.
+  const can = async (item, mode = 'see') => { const { data } = await db.rpc('staff_can', { p_camp: campId, p_email: email, p_item: item, p_mode: mode }); return data === true; };
+  return { email, roles: (rows || []).map(r => r.role), can };
 }
 
 export async function campBySlugOrId(db, v) {

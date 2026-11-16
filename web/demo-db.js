@@ -122,6 +122,12 @@
       db.camper_health.push({ camper_id: a.camper_id, camp_id: CAMP, alert: al[1], allergies: /allerg/i.test(al[0]) ? al[0] : null, conditions: /allerg/i.test(al[0]) ? null : al[0], medications: null, updated_by: 'nurse@example.com', updated_at: now });
     });
 
+    // Who can see what, plus one sample camper detail of the camp's own (T-shirt size).
+    seedAccess(db);
+    db.perm_items.push({ camp_id: CAMP, key: 'f_shirt', label: 'T-shirt size', help: null, kind: 'field', sort: 101 });
+    db.permissions.push({ camp_id: CAMP, role_key: 'office', item_key: 'f_shirt', can_see: true, can_change: true }, { camp_id: CAMP, role_key: 'head_counselor', item_key: 'f_shirt', can_see: true, can_change: false });
+    db.campers.forEach(function (c) { if (R() < 0.8) db.camper_fields.push({ camper_id: c.id, camp_id: CAMP, item_key: 'f_shirt', value: pick(['Youth M', 'Youth L', 'Adult S', 'Adult M', 'Adult L']), updated_by: 'office@example.com', updated_at: now }); });
+
     // Money: a read-only copy of Camp Flow's figures, as in a real camp this season.
     db.families.forEach(function (fam, i) {
       var kids = db.campers.filter(function (c) { return c.family_id === fam.id; }).length;
@@ -258,56 +264,109 @@
   var clone = function (x) { return JSON.parse(JSON.stringify(x)); };
   var newId = function (t) { return t + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); };
 
-  // ---------- Roles: "Viewing as" in the test camp. The same limits the database enforces in a real camp. ----------
-  var ROLES = [
-    { key: 'director', role: 'director', label: 'Director' },
-    { key: 'office', role: 'office', label: 'Office' },
-    { key: 'finance', role: 'finance', label: 'Finance' },
-    { key: 'infirmary', role: 'infirmary', label: 'Infirmary (medical staff)' },
-    { key: 'head-boys', role: 'head_counselor', label: 'Head counselor, Boys session', session_id: 'sess-boys' },
-    { key: 'head-girls', role: 'head_counselor', label: 'Head counselor, Girls session', session_id: 'sess-girls' },
-    { key: 'counselor', role: 'counselor', label: 'Counselor, Bunk 1', session_id: 'sess-boys', bunk_id: 'bunk-boys-1' }
-  ];
+  // ---------- Who can see what: the same defaults and rules as the database (migration 20261116000008). ----------
+  var ROLE_DEFAULTS = [['director', 'Director', 'camp'], ['office', 'Office', 'camp'], ['finance', 'Finance', 'camp'], ['infirmary', 'Infirmary', 'camp'],
+    ['head_counselor', 'Head counselor', 'session'], ['counselor', 'Counselor', 'bunk']];
+  var ITEM_DEFAULTS = [['roster', 'Camper list', 'Names, grades, birth dates, sessions. Change: legal and Hebrew names, staff child'],
+    ['parent_contacts', 'Parent contacts', 'Parents\' names, phones, emails, address, emergency contacts'],
+    ['alerts', 'Medical alerts', 'The one-line alert, e.g. "Peanut allergy, EpiPen". Change: write the alert'],
+    ['health_forms', 'Health forms', 'Uploaded forms and medical history. Change: approve, send back, add paper forms'],
+    ['form_status', 'Forms checklist', 'Who is missing which form. Change: send reminders, pause them, family links'],
+    ['bunks', 'Bunks', 'Bunk lists. Change: create bunks, move campers'], ['money', 'Money', 'Charges, payments and balances'],
+    ['imports', 'Camp Flow imports', 'Import history. Change: import a report by hand'], ['setup', 'Sessions and required forms', 'Change: add sessions and dates, turn required forms on or off'],
+    ['activity', 'Activity log', 'Who did what, and who opened which form']];
+  // [role, item, see, change]: tests/demo.test.mjs checks these match the database migration.
+  var PERM_DEFAULTS = [['office', 'roster', 1, 1], ['office', 'parent_contacts', 1, 1], ['office', 'alerts', 1, 0], ['office', 'health_forms', 1, 0], ['office', 'form_status', 1, 1],
+    ['office', 'bunks', 1, 1], ['office', 'imports', 1, 1], ['office', 'setup', 1, 1], ['finance', 'roster', 1, 0], ['finance', 'parent_contacts', 1, 0], ['finance', 'money', 1, 0],
+    ['infirmary', 'roster', 1, 0], ['infirmary', 'parent_contacts', 1, 0], ['infirmary', 'alerts', 1, 1], ['infirmary', 'health_forms', 1, 1], ['infirmary', 'form_status', 1, 0], ['infirmary', 'bunks', 1, 0],
+    ['head_counselor', 'roster', 1, 0], ['head_counselor', 'alerts', 1, 0], ['head_counselor', 'bunks', 1, 1], ['counselor', 'roster', 1, 0], ['counselor', 'alerts', 1, 0], ['counselor', 'bunks', 1, 0]];
+  function seedAccess(db) {
+    db.roles = ROLE_DEFAULTS.map(function (r, i) { return { camp_id: CAMP, key: r[0], label: r[1], scope: r[2], builtin: true, sort: i + 1 }; });
+    db.perm_items = ITEM_DEFAULTS.map(function (r, i) { return { camp_id: CAMP, key: r[0], label: r[1], help: r[2], kind: 'builtin', sort: i + 1 }; });
+    db.permissions = PERM_DEFAULTS.map(function (p) { return { camp_id: CAMP, role_key: p[0], item_key: p[1], can_see: !!p[2], can_change: !!p[3] }; });
+    db.camper_fields = [];
+  }
+
+  // "Viewing as" choices: each role, once per session or bunk when it's limited to one.
   var ROLE_KEY = function (email) { return 'roster-demo-role:' + (email || ''); };
-  function savedRole(email) { var k = null; try { k = sessionStorage.getItem(ROLE_KEY(email)); } catch (e) { } return ROLES.find(function (r) { return r.key === k; }) || ROLES[0]; }
+  function viewOptions(db) {
+    var out = [];
+    db.roles.slice().sort(function (a, b) { return a.sort - b.sort; }).forEach(function (r) {
+      if (r.scope === 'camp') out.push({ key: r.key, role: r.key, label: r.label });
+      if (r.scope === 'session') db.sessions.forEach(function (s) { out.push({ key: r.key + '@' + s.id, role: r.key, label: r.label + ', ' + s.name, session_id: s.id }); });
+      if (r.scope === 'bunk') { var b = db.bunks.find(function (x) { return x.id === 'bunk-boys-1'; }) || db.bunks[0]; if (b) out.push({ key: r.key + '@' + b.id, role: r.key, label: r.label + ', ' + b.name, session_id: b.session_id, bunk_id: b.id }); }
+    });
+    return out;
+  }
 
   function client(email) {
-    var key = KEY(email), db = null, me = savedRole(email);
-    var is = function () { for (var i = 0; i < arguments.length; i++) if (me.role === arguments[i]) return true; return false; };
-    var head = function (sessionId) { return me.role === 'head_counselor' && (!me.session_id || me.session_id === sessionId); };
-    var bunkSession = function (bunkId) { var b = db.bunks.find(function (x) { return x.id === bunkId; }); return b && b.session_id; };
-    var enrolledIn = function (camperId, test) { return db.enrollments.some(function (e) { return e.camper_id === camperId && test(e.session_id); }); };
-    var office = function () { return is('director', 'office', 'finance', 'infirmary'); };
+    var key = KEY(email), db = null, me = null;
+    var permOk = function (item, mode) {
+      if (me.role === 'director') return true;
+      var p = db.permissions.find(function (x) { return x.role_key === me.role && x.item_key === item; });
+      return !!p && (p.can_change || (mode !== 'change' && p.can_see));
+    };
+    var scopeOf = function () { var r = db.roles.find(function (x) { return x.key === me.role; }); return me.role === 'director' ? 'camp' : (r ? r.scope : 'camp'); };
+    var canAny = function (item, mode) { return permOk(item, mode); };
+    var canCamper = function (camperId, item, mode) {
+      if (!permOk(item, mode)) return false;
+      var sc = scopeOf();
+      if (sc === 'camp') return true;
+      if (sc === 'session') return !me.session_id || db.enrollments.some(function (e) { return e.camper_id === camperId && e.session_id === me.session_id; });
+      return db.bunk_assignments.some(function (a) { return a.camper_id === camperId && a.bunk_id === me.bunk_id; });
+    };
+    var canFamily = function (familyId, item, mode) {
+      if (permOk(item, mode) && scopeOf() === 'camp') return true;
+      return db.campers.some(function (c) { return c.family_id === familyId && canCamper(c.id, item, mode); });
+    };
+    var canBunk = function (bunkId, item, mode) {
+      if (!permOk(item, mode)) return false;
+      var b = db.bunks.find(function (x) { return x.id === bunkId; }), sc = scopeOf();
+      if (!b) return false;
+      return sc === 'camp' || (sc === 'session' && (!me.session_id || me.session_id === b.session_id)) || (sc === 'bunk' && me.bunk_id === b.id);
+    };
     function visible(table, row) {
       switch (table) {
-        case 'camps': case 'sessions': case 'requirements': case 'bunks': return true;
-        case 'staff': return is('director');
-        case 'families': return office();
-        case 'campers': return office() || enrolledIn(row.id, head);
-        case 'enrollments': return office() || head(row.session_id);
-        case 'bunk_assignments': return is('director', 'office', 'infirmary') || head(bunkSession(row.bunk_id));
-        case 'submissions': case 'camper_health': return is('director', 'office', 'infirmary');
-        case 'sfsp_forms': case 'reminder_log': case 'import_runs': return is('director', 'office');
-        case 'finance_accounts': case 'finance_entries': return is('director', 'finance');
-        case 'audit_log': return is('director');
+        case 'camps': case 'sessions': case 'requirements': case 'bunks': case 'roles': case 'perm_items': case 'permissions': return true;
+        case 'staff': return me.role === 'director';
+        case 'families': return canFamily(row.id, 'parent_contacts', 'see');
+        case 'campers': return canCamper(row.id, 'roster', 'see');
+        case 'enrollments': return canCamper(row.camper_id, 'roster', 'see');
+        case 'bunk_assignments': return canBunk(row.bunk_id, 'bunks', 'see') && canCamper(row.camper_id, 'roster', 'see');
+        case 'submissions': return row.camper_id ? canCamper(row.camper_id, 'health_forms', 'see') : canFamily(row.family_id, 'health_forms', 'see');
+        case 'camper_health': return canCamper(row.camper_id, 'health_forms', 'see');
+        case 'camper_fields': return canCamper(row.camper_id, row.item_key, 'see');
+        case 'sfsp_forms': return canAny('form_status', 'see');
+        case 'reminder_log': return canFamily(row.family_id, 'form_status', 'see');
+        case 'finance_accounts': case 'finance_entries': return canAny('money', 'see');
+        case 'import_runs': return canAny('imports', 'see');
+        case 'audit_log': return canAny('activity', 'see');
         default: return false;
       }
     }
     function writable(table, op, row) {
       switch (table) {
-        case 'camps': case 'staff': return is('director');
-        case 'sessions': case 'requirements': case 'families': case 'campers': case 'enrollments': return is('director', 'office');
-        case 'bunks': return is('director', 'office') || head(row.session_id);
-        case 'bunk_assignments': return is('director', 'office') || head(bunkSession(row.bunk_id));
-        case 'submissions': return op === 'insert' ? is('director', 'office', 'infirmary') : op === 'delete' ? is('director') : is('director', 'infirmary');
-        case 'camper_health': return is('director', 'infirmary');
+        case 'camps': case 'staff': case 'roles': case 'permissions': return me.role === 'director';
+        case 'perm_items': return me.role === 'director' && (op !== 'insert' || row.kind === 'field');
+        case 'sessions': case 'requirements': case 'enrollments': return canAny('setup', 'change');
+        case 'families': return canFamily(row.id, 'parent_contacts', 'change') || canFamily(row.id, 'form_status', 'change');
+        case 'campers': return canCamper(row.id, 'roster', 'change');
+        case 'bunks': var sc = scopeOf(); return permOk('bunks', 'change') && (sc === 'camp' || (sc === 'session' && (!me.session_id || me.session_id === row.session_id)));
+        case 'bunk_assignments': return canBunk(row.bunk_id, 'bunks', 'change');
+        case 'submissions': return op === 'delete' ? me.role === 'director' : (row.camper_id ? canCamper(row.camper_id, 'health_forms', 'change') : canFamily(row.family_id, 'health_forms', 'change'));
+        case 'camper_health': return canCamper(row.camper_id, 'alerts', 'change');
+        case 'camper_fields': return canCamper(row.camper_id, row.item_key, 'change');
         default: return false;
       }
     }
-    var refused = function () { return { data: null, error: { message: 'As ' + me.label.toLowerCase() + ', you can\'t change this. In a real camp the database blocks it too.', expected: true } }; };
+    var refused = function (msg) { return { data: null, error: { message: msg || ('As ' + me.label.toLowerCase() + ', you can\'t change this. In a real camp the database blocks it too.'), expected: true } }; };
     var notAllowed = function () { var e = new Error('not allowed'); e.denied = true; throw e; };
     try { db = JSON.parse(sessionStorage.getItem(key) || 'null'); } catch (e) { db = null; }
     if (!db) db = build(email);
+    if (!db.roles) seedAccess(db);
+    var savedKey = null; try { savedKey = sessionStorage.getItem(ROLE_KEY(email)); } catch (e) { }
+    var opts = viewOptions(db);
+    me = opts.find(function (o) { return o.key === savedKey; }) || opts[0];
     var timer = null;
     var save = function () { clearTimeout(timer); timer = setTimeout(function () { try { sessionStorage.setItem(key, JSON.stringify(db)); } catch (e) { } }, 50); };
     save();
@@ -332,11 +391,11 @@
           if (!rows.every(function (r) { return writable(table, 'insert', r); })) return refused();
           rows.forEach(function (r) {
             if (st.op === 'upsert') {
-              var keyCols = table === 'camper_health' ? ['camper_id'] : table === 'finance_accounts' ? ['family_id'] : ['id'];
+              var keyCols = table === 'camper_health' ? ['camper_id'] : table === 'finance_accounts' ? ['family_id'] : table === 'permissions' ? ['role_key', 'item_key'] : table === 'camper_fields' ? ['camper_id', 'item_key'] : ['id'];
               var hit = db[table].find(function (x) { return keyCols.every(function (k) { return x[k] === r[k]; }); });
               if (hit) { Object.assign(hit, r); return; }
             }
-            if (!r.id && ['bunk_assignments', 'enrollments', 'camper_health', 'finance_accounts'].indexOf(table) < 0) r.id = newId(table);
+            if (!r.id && ['bunk_assignments', 'enrollments', 'camper_health', 'finance_accounts', 'roles', 'perm_items', 'permissions', 'camper_fields'].indexOf(table) < 0) r.id = newId(table);
             if (table === 'bunk_assignments' && db[table].some(function (x) { return x.bunk_id === r.bunk_id && x.camper_id === r.camper_id; })) return;
             db[table].push(r);
           });
@@ -354,6 +413,14 @@
         }
         if (st.op === 'delete') {
           if (db[table].some(function (r) { return visible(table, r) && test(r) && !writable(table, 'delete', r); })) return refused();
+          // The database's guards: the Director role, roles still in use and built-in items stay.
+          var doomed = db[table].filter(function (r) { return visible(table, r) && test(r); });
+          if (table === 'roles' && doomed.some(function (r) { return r.key === 'director'; })) return refused('The Director role can\'t be removed.');
+          var inUse = table === 'roles' && doomed.find(function (r) { return db.staff.some(function (x) { return x.role === r.key; }); });
+          if (inUse) return refused('Someone still has the ' + inUse.label + ' role. Change their role first.');
+          if (table === 'perm_items' && doomed.some(function (r) { return r.kind === 'builtin'; })) return refused('Built-in items can\'t be removed; untick them instead.');
+          if (table === 'roles') doomed.forEach(function (r) { db.permissions = db.permissions.filter(function (p) { return p.role_key !== r.key; }); });
+          if (table === 'perm_items') doomed.forEach(function (r) { db.permissions = db.permissions.filter(function (p) { return p.item_key !== r.key; }); db.camper_fields = db.camper_fields.filter(function (f) { return f.item_key !== r.key; }); });
           var keep = db[table].filter(function (r) { return !(visible(table, r) && test(r)); });
           var gone = db[table].length - keep.length;
           db[table] = keep;
@@ -389,17 +456,22 @@
     }
 
     var rpcs = {
-      form_status: function (a) { if (!is('director', 'office', 'infirmary')) notAllowed(); return formStatus(db, a.p_session || null); },
+      form_status: function (a) { if (!canAny('form_status', 'see')) notAllowed(); return formStatus(db, a.p_session || null).filter(function (r) { return canCamper(r.camper_id, 'form_status', 'see'); }); },
+      camper_alerts: function () { return db.camper_health.filter(function (h) { return h.alert && canCamper(h.camper_id, 'alerts', 'see'); }).map(function (h) { return { camper_id: h.camper_id, alert: h.alert }; }); },
+      my_permissions: function () {
+        var items = {}; db.perm_items.forEach(function (i) { items[i.key] = { see: permOk(i.key, 'see'), change: permOk(i.key, 'change'), label: i.label, kind: i.kind }; });
+        var r = db.roles.find(function (x) { return x.key === me.role; }) || {};
+        return { director: me.role === 'director', items: items, roles: [{ role: me.role, label: r.label, scope: scopeOf(), session_id: me.session_id || null, bunk_id: me.bunk_id || null }] };
+      },
       bunk_list: function (a) {
-        var bs = bunkSession(a.p_bunk);
-        if (!(is('director', 'office', 'infirmary') || head(bs) || (me.role === 'counselor' && me.bunk_id === a.p_bunk))) notAllowed();
+        if (!canBunk(a.p_bunk, 'bunks', 'see')) notAllowed();
         return db.bunk_assignments.filter(function (x) { return x.bunk_id === a.p_bunk; }).map(function (x) {
           var c = db.campers.find(function (k) { return k.id === x.camper_id; }), h = db.camper_health.find(function (k) { return k.camper_id === x.camper_id; });
-          return c && c.active ? { camper_id: c.id, first_name: c.first_name, last_name: c.last_name, grade: c.grade, alert: h ? h.alert : null } : null;
+          return c && c.active ? { camper_id: c.id, first_name: c.first_name, last_name: c.last_name, grade: c.grade, alert: h && canCamper(c.id, 'alerts', 'see') ? h.alert : null } : null;
         }).filter(Boolean).sort(function (a, b) { return (a.last_name + a.first_name).localeCompare(b.last_name + b.first_name); });
       },
-      sfsp_connection: function () { if (!is('director')) return null; var s = db.camp_secrets[0]; return { sfsp_camp_id: s.sfsp_camp_id, sfsp_form_url: s.sfsp_form_url, has_secret: true, last_message: null }; },
-      set_sfsp_connection: function (a) { if (!is('director')) notAllowed(); var s = db.camp_secrets[0]; s.sfsp_camp_id = a.p_sfsp_camp_id || s.sfsp_camp_id; s.sfsp_form_url = a.p_form_url || s.sfsp_form_url; save(); return null; },
+      sfsp_connection: function () { if (me.role !== 'director') return null; var s = db.camp_secrets[0]; return { sfsp_camp_id: s.sfsp_camp_id, sfsp_form_url: s.sfsp_form_url, has_secret: true, last_message: null }; },
+      set_sfsp_connection: function (a) { if (me.role !== 'director') notAllowed(); var s = db.camp_secrets[0]; s.sfsp_camp_id = a.p_sfsp_camp_id || s.sfsp_camp_id; s.sfsp_form_url = a.p_form_url || s.sfsp_form_url; save(); return null; },
       log_file_view: function () { return null; }
     };
     return {
@@ -412,7 +484,8 @@
         catch (e) { return Promise.resolve({ data: null, error: { message: e.denied ? 'Your role can\'t see this.' : e.message, expected: !!e.denied } }); }
       },
       role: function () { return me; },
-      setRole: function (k) { me = ROLES.find(function (r) { return r.key === k; }) || ROLES[0]; try { sessionStorage.setItem(ROLE_KEY(email), me.key); } catch (e) { } return me; },
+      roles: function () { return viewOptions(db); },
+      setRole: function (k) { var o = viewOptions(db); me = o.find(function (r) { return r.key === k; }) || o[0]; try { sessionStorage.setItem(ROLE_KEY(email), me.key); } catch (e) { } return me; },
       storage: { from: function () { return {
         upload: function () { return Promise.resolve({ data: {}, error: null }); },
         createSignedUrl: function () { return Promise.resolve({ data: null, error: { message: 'Files aren\'t kept in ' + NAME + '. In your own camp, this opens the form.', expected: true } }); }
@@ -435,5 +508,5 @@
 
   function clear(email) { try { sessionStorage.removeItem(KEY(email)); sessionStorage.removeItem(ROLE_KEY(email)); } catch (e) { } }
 
-  root.DemoDB = { CAMP: CAMP, NAME: NAME, ROLES: ROLES, savedRole: savedRole, SFSP_PRACTICE_FORM: SFSP_PRACTICE_FORM, client: client, clear: clear, build: build, checkSubmission: checkSubmission, formStatus: formStatus };
+  root.DemoDB = { CAMP: CAMP, NAME: NAME, PERM_DEFAULTS: PERM_DEFAULTS, SFSP_PRACTICE_FORM: SFSP_PRACTICE_FORM, client: client, clear: clear, build: build, checkSubmission: checkSubmission, formStatus: formStatus };
 })(typeof window !== 'undefined' ? window : globalThis);

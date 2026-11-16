@@ -26,8 +26,8 @@ Deno.serve(async req => {
     const { data: camp } = await db.from('camps').select('*').eq('id', body.camp || '').maybeSingle();
     if (!camp) return fail('Unknown camp', 404);
     const me = await staffFor(req, db, camp.id);
-    const allowed = body.action === 'rejected' ? ['director', 'infirmary'] : ['director', 'office'];
-    if (!me || !me.roles.some(r => allowed.includes(r))) return fail('Not allowed', 403);
+    // Reminders and family links: Forms checklist (change). "Please send again": Health forms (change).
+    if (!me || !(await me.can(body.action === 'rejected' ? 'health_forms' : 'form_status', 'change'))) return fail('Not allowed', 403);
     const ids = Array.isArray(body.family_ids) ? body.family_ids.slice(0, 2000) : [];
     if (!ids.length) return fail('No families chosen');
 

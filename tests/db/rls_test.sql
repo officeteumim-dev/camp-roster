@@ -98,7 +98,8 @@ rollback;
 begin; do $$ begin perform pg_temp.as_user('coun@x.org'); end $$;
 do $$ begin
   assert (select count(*) from families) = 0, 'counselor sees no families';
-  assert (select count(*) from campers) = 0, 'counselor sees no camper records directly';
+  assert (select count(*) from campers) = 1, 'counselor sees only the camper in their bunk';
+  assert (select first_name from campers) = 'Yosef', 'and it is the right one';
   assert (select count(*) from camper_health) = 0, 'counselor sees no health records';
   assert (select count(*) from bunk_list('00000000-0000-0000-0000-0000000000b1')) = 1, 'counselor sees own bunk';
   assert (select alert from bunk_list('00000000-0000-0000-0000-0000000000b1')) = 'Peanut allergy, EpiPen', 'counselor sees the alert';
@@ -267,5 +268,118 @@ do $$ declare ok int := 0; begin
   assert ok = 30, 'only 30 a minute';
   assert rate_ok('ip:5.6.7.8', 30, 60), 'other IPs unaffected';
 end $$; rollback;
+
+
+-- ---------- Who-sees-what table ----------
+do $$ begin
+  assert (select count(*) from roles where camp_id = '00000000-0000-0000-0000-0000000000c1') = 6, 'six built-in roles';
+  assert (select count(*) from perm_items where camp_id = '00000000-0000-0000-0000-0000000000c1') = 10, 'ten built-in items';
+end $$;
+
+-- Only the director edits the table; the director keeps full access.
+begin; do $$ begin perform pg_temp.as_user('office@x.org'); end $$;
+do $$ begin
+  insert into roles (camp_id, key, label) values ('00000000-0000-0000-0000-0000000000c1', 'kitchen', 'Kitchen');
+  raise exception 'office should not add roles';
+exception when insufficient_privilege then null; end $$;
+update permissions set can_change = true where role_key = 'office' and item_key = 'health_forms';
+do $$ begin assert not (select can_change from permissions where role_key = 'office' and item_key = 'health_forms' and camp_id = '00000000-0000-0000-0000-0000000000c1'), 'office cannot grant itself rights'; end $$;
+rollback;
+
+begin; do $$ begin perform pg_temp.as_user('dir@x.org'); end $$;
+do $$ begin
+  delete from roles where key = 'director';
+  raise exception 'director role deleted';
+exception when raise_exception then if sqlerrm not like '%can''t be removed%' then raise; end if; end $$;
+do $$ begin
+  delete from roles where key = 'office' and camp_id = '00000000-0000-0000-0000-0000000000c1';
+  raise exception 'role in use deleted';
+exception when raise_exception then if sqlerrm not like '%still has%' then raise; end if; end $$;
+do $$ begin
+  delete from perm_items where key = 'money' and camp_id = '00000000-0000-0000-0000-0000000000c1';
+  raise exception 'built-in item deleted';
+exception when raise_exception then if sqlerrm not like '%Built-in%' then raise; end if; end $$;
+-- Untick everything for director? The director still sees all.
+insert into permissions (camp_id, role_key, item_key, can_see, can_change) values ('00000000-0000-0000-0000-0000000000c1', 'director', 'money', false, false);
+do $$ begin assert (select count(*) from finance_accounts) = 1, 'director keeps full access'; end $$;
+rollback;
+
+-- Director lets the office approve forms: it works at once.
+begin;
+set local role service_role;
+update permissions set can_change = true where role_key = 'office' and item_key = 'health_forms' and camp_id = '00000000-0000-0000-0000-0000000000c1';
+reset role;
+do $$ begin perform pg_temp.as_user('office@x.org'); end $$;
+update submissions set status = 'approved' where status = 'received';
+do $$ begin assert (select count(*) from submissions where status = 'approved') = 1, 'office can now approve'; end $$;
+rollback;
+
+-- Taking a right away hides the data.
+begin; set local role service_role;
+update permissions set can_see = false, can_change = false where role_key = 'infirmary' and item_key = 'parent_contacts' and camp_id = '00000000-0000-0000-0000-0000000000c1';
+reset role;
+do $$ begin perform pg_temp.as_user('nurse@x.org'); end $$;
+do $$ begin assert (select count(*) from families) = 0, 'infirmary no longer sees parent contacts'; end $$;
+rollback;
+
+-- A custom role (Kitchen, whole camp): names and alerts only.
+begin; set local role service_role;
+insert into roles (camp_id, key, label, scope) values ('00000000-0000-0000-0000-0000000000c1', 'kitchen', 'Kitchen', 'camp');
+insert into permissions (camp_id, role_key, item_key, can_see) values ('00000000-0000-0000-0000-0000000000c1', 'kitchen', 'roster', true), ('00000000-0000-0000-0000-0000000000c1', 'kitchen', 'alerts', true);
+insert into staff (camp_id, email, role) values ('00000000-0000-0000-0000-0000000000c1', 'cook@x.org', 'kitchen');
+reset role;
+do $$ begin perform pg_temp.as_user('cook@x.org'); end $$;
+do $$ begin
+  assert (select count(*) from campers) = 3, 'kitchen sees every camper';
+  assert (select count(*) from families) = 0, 'no parent contacts';
+  assert (select count(*) from camper_health) = 0, 'no medical details';
+  assert (select alert from camper_alerts('00000000-0000-0000-0000-0000000000c1')) = 'Peanut allergy, EpiPen', 'but the alert';
+  assert (my_permissions('00000000-0000-0000-0000-0000000000c1') -> 'items' -> 'alerts' ->> 'see')::boolean, 'app is told';
+  assert not (my_permissions('00000000-0000-0000-0000-0000000000c1') -> 'items' -> 'money' ->> 'see')::boolean, 'no money';
+end $$;
+do $$ begin
+  perform form_status('00000000-0000-0000-0000-0000000000c1');
+  raise exception 'kitchen should not see the forms checklist';
+exception when insufficient_privilege then null; end $$;
+rollback;
+
+-- A custom item (T-shirt size): seen and changed only by roles given it.
+begin; set local role service_role;
+insert into perm_items (camp_id, key, label) values ('00000000-0000-0000-0000-0000000000c1', 'shirt', 'T-shirt size');
+insert into permissions (camp_id, role_key, item_key, can_see, can_change) values ('00000000-0000-0000-0000-0000000000c1', 'office', 'shirt', true, true),
+  ('00000000-0000-0000-0000-0000000000c1', 'head_counselor', 'shirt', true, false);
+reset role;
+do $$ begin perform pg_temp.as_user('office@x.org'); end $$;
+insert into camper_fields (camper_id, camp_id, item_key, value, updated_by) values ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000c1', 'shirt', 'Youth L', 'office@x.org');
+reset role;
+do $$ begin perform pg_temp.as_user('head@x.org'); end $$;
+do $$ begin assert (select value from camper_fields where camper_id = '00000000-0000-0000-0000-0000000000a1') = 'Youth L', 'head counselor sees it (own session)'; end $$;
+do $$ begin
+  update camper_fields set value = 'Adult S' where camper_id = '00000000-0000-0000-0000-0000000000a1';
+  assert (select value from camper_fields where camper_id = '00000000-0000-0000-0000-0000000000a1') = 'Youth L', 'but cannot change it';
+end $$;
+reset role;
+do $$ begin perform pg_temp.as_user('nurse@x.org'); end $$;
+do $$ begin assert (select count(*) from camper_fields) = 0, 'infirmary was not given it'; end $$;
+reset role;
+do $$ begin perform pg_temp.as_user('dir@x.org'); end $$;
+delete from perm_items where key = 'shirt';
+do $$ begin assert (select count(*) from camper_fields) = 0, 'removing the item removes its values'; end $$;
+rollback;
+
+-- Session-limited custom role and the server's check.
+begin; set local role service_role;
+do $$ begin
+  assert staff_can('00000000-0000-0000-0000-0000000000c1', 'OFFICE@x.org', 'imports', 'change'), 'server check: office imports';
+  assert not staff_can('00000000-0000-0000-0000-0000000000c1', 'fin@x.org', 'imports', 'change'), 'server check: finance does not';
+  assert staff_can('00000000-0000-0000-0000-0000000000c1', 'dir@x.org', 'anything', 'change'), 'director always';
+end $$;
+rollback;
+
+-- Deleting a whole camp still works (its roles and items go with it).
+begin; set local role service_role;
+delete from camps where id = '00000000-0000-0000-0000-0000000000c2';
+do $$ begin assert not exists (select 1 from roles where camp_id = '00000000-0000-0000-0000-0000000000c2'), 'camp deleted with its roles'; end $$;
+rollback;
 
 \echo 'ALL DATABASE TESTS PASSED'

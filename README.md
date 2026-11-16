@@ -17,6 +17,8 @@ For where setup stands, see `SETUP-STATUS.md`.
 
 ## Who sees what
 
+Directors set this in **Settings → Who can see what**: a table of roles × items with **See** and **Change** ticks, where they can also add roles (whole camp, one session or one bunk) and their own camper details (like T-shirt size). The database reads that table for every request (`can()`, `can_camper()`, `can_family()`, `can_bunk()` in `supabase/migrations/20261116000008_permissions.sql`), so the app can't show more than it allows. The Director always has full access, and staff access and settings stay director-only. The defaults:
+
 | Role | Sees | Can change |
 |---|---|---|
 | Director | Everything | Everything, including staff access and settings |
