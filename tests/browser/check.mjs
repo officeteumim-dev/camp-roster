@@ -167,6 +167,7 @@ await phone.screenshot({ path: path.join(out, 'portal-medical.png'), fullPage: f
 // Menu: sidebar on desktop shrinks to icons; on phones it slides in and there's a bottom bar.
 await page.goto('http://app.test/#forms'); await page.waitForTimeout(300);
 if (await page.locator('#drawer nav a[aria-current="page"]').innerText() !== 'Forms') errors.push('menu does not mark the current page');
+if (!(await page.locator('header.top .logo').isVisible())) errors.push('logo missing from the top bar');
 await page.locator('#menuBtn').click(); await page.waitForTimeout(250);
 if (!(await page.evaluate(() => document.body.classList.contains('mini')))) errors.push('menu button did not shrink the sidebar');
 await page.screenshot({ path: path.join(out, 'staff-menu-mini.png') });
@@ -175,9 +176,11 @@ const small = await newPage(390);
 await small.goto('http://app.test/#roster'); await small.waitForTimeout(400);
 if (await small.locator('#drawer').evaluate(d => d.getBoundingClientRect().right > 0)) errors.push('phone menu is showing before it is opened');
 if (!(await small.locator('#botbar a').count())) errors.push('phone bottom bar missing');
+if (await small.locator('header.top .logo').isVisible()) errors.push('logo should not show in the phone top bar');
 await small.screenshot({ path: path.join(out, 'phone-roster.png') });
 await small.locator('#menuBtn').click(); await small.waitForTimeout(350);
 await small.screenshot({ path: path.join(out, 'phone-menu-open.png') });
+if (!(await small.locator('.foot-brand .logo').isVisible())) errors.push('logo missing at the bottom of the phone menu');
 await small.locator('#drawer nav a', { hasText: 'Bunks' }).click(); await small.waitForTimeout(400);
 if (!/#bunks$/.test(small.url()) || await small.locator('#drawer').evaluate(d => d.classList.contains('open'))) errors.push('phone menu link did not go to Bunks and close');
 
@@ -187,6 +190,8 @@ const demo = await newPage(1360, NEW);
 const serverCalls = [];
 demo.on('request', r => { const u = r.url(); if (u.includes('fake.supabase.co')) serverCalls.push(u); });
 await demo.goto('http://app.test/'); await demo.waitForTimeout(300);
+await demo.screenshot({ path: path.join(out, 'no-access.png') });
+if (!(await demo.locator('.signin .logo').count())) errors.push('logo missing on the welcome card');
 await demo.getByRole('button', { name: /Explore Camp Test Site/ }).click(); await demo.waitForTimeout(500);
 const banner = await demo.locator('#demobar').innerText();
 if (!/practice camp/.test(banner) || !/Start over/.test(banner)) errors.push('test camp banner missing');

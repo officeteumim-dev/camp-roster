@@ -5,7 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
 <meta name="theme-color" content="#24492c">
-<title>Camp roster</title>
+<title>Camp Roster</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700&display=swap">
@@ -17,6 +21,14 @@
   header.top .iconbtn:hover { background: rgb(255 255 255 / .1); }
   #pageTitle { font-weight: 500; font-size: 14px; color: var(--head-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; padding-left: 12px; border-left: 1px solid var(--head-line); }
   @media (max-width: 520px) { #pageTitle { display: none; } }
+
+  /* logo (same sizes and places as the SFSP app's) */
+  .logo { width: 30px; height: 30px; flex: none; border-radius: 7px; display: inline-block; background: url(/icons/icon-192.png) center/cover no-repeat; box-shadow: 0 0 0 1px rgb(255 255 255 / .16); }
+  .drawer-head .logo { box-shadow: none; }
+  .foot-brand { display: none; align-items: center; gap: 8px; padding-top: 8px; }
+  .foot-brand .logo { width: 24px; height: 24px; border-radius: 6px; box-shadow: none; }
+  .signin .logo { display: block; width: 72px; height: 72px; border-radius: 16px; margin: 0 auto 14px; box-shadow: none; }
+  @media (max-width: 640px) { header.top .logo, .drawer-head .logo { display: none; } .foot-brand { display: flex; } }
 
   /* menu: a sidebar on wide screens (shrinks to icons), a slide-in panel on phones and tablets */
   .drawer-bg { position: fixed; inset: 0; z-index: 40; background: rgb(10 16 30 / .45); opacity: 0; transition: opacity .2s; }
@@ -130,7 +142,7 @@
 <body>
 <header class="top" id="top" hidden><div class="top-in">
   <button class="iconbtn" id="menuBtn" aria-label="Open menu" aria-controls="drawer" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/></svg></button>
-  <a href="#" class="brand" id="campName">Camp roster</a>
+  <a href="#" class="logo" aria-label="Home" tabindex="-1"></a><a href="#" class="brand" id="campName">Camp Roster</a>
   <span id="pageTitle"></span>
 </div></header>
 <div class="drawer-bg" id="drawerBg" hidden></div>

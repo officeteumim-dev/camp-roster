@@ -51,7 +51,7 @@
   // ---------- sign in ----------
   function showSignIn(msg) {
     hideChrome();
-    $main.innerHTML = '<div class="card signin"><h1>Camp roster</h1><p class="muted">Sign in with the email address the camp office added for you.</p>' +
+    $main.innerHTML = '<div class="card signin"><span class="logo" role="img" aria-label="Camp Roster by W Group"></span><h1>Camp Roster</h1><p class="muted">Sign in with the email address the camp office added for you.</p>' +
       (msg ? '<div class="error">' + esc(msg) + '</div>' : '') +
       '<p><button class="primary" id="g">Sign in with Google</button></p><hr style="border:0;border-top:1px solid var(--line);margin:18px 0">' +
       '<form id="ml"><label class="field">Or get a sign-in link by email<input type="email" id="em" required autocomplete="email"></label><button>Email me a link</button></form></div>';
@@ -82,7 +82,7 @@
 
   function showNoAccess() {
     hideChrome();
-    $main.innerHTML = '<div class="card signin"><h1>Camp roster</h1><p>Your account (' + esc(S.user.email) + ') has not been given access to a camp yet. Ask your camp director to add you.</p>' +
+    $main.innerHTML = '<div class="card signin"><span class="logo" role="img" aria-label="Camp Roster by W Group"></span><h1>Camp Roster</h1><p>Your account (' + esc(S.user.email) + ') has not been given access to a camp yet. Ask your camp director to add you.</p>' +
       '<p>Meanwhile, you can explore <strong>' + DEMO.NAME + '</strong>, a practice camp with 500 sample campers. Try anything: nothing you do there is saved.</p>' +
       '<p class="row"><button class="primary" id="godemo">Explore ' + DEMO.NAME + '</button><button id="out2">Sign out</button></p></div>';
     document.getElementById('godemo').onclick = function () { pickCamp(DEMO.CAMP); };
@@ -190,11 +190,11 @@
     var groups = [];
     pages.forEach(function (p) { var g = groups.find(function (x) { return x.name === p[2]; }); if (!g) groups.push(g = { name: p[2], pages: [] }); g.pages.push(p); });
     var link = function (p) { return '<a href="#' + p[0] + '" data-p="' + p[0] + '">' + svg(ICON[p[0]]) + '<span>' + p[1] + '</span></a>'; };
-    $drawer.innerHTML = '<div class="drawer-head"><b>' + esc(S.camp.name) + '</b><button class="iconbtn" data-close aria-label="Close menu">' + svg(ICON.close) + '</button></div>' +
+    $drawer.innerHTML = '<div class="drawer-head"><span class="logo" role="img" aria-label="Camp Roster by W Group"></span><b>' + esc(S.camp.name) + '</b><button class="iconbtn" data-close aria-label="Close menu">' + svg(ICON.close) + '</button></div>' +
       '<div class="drawer-acct">' + (camps.length > 1 ? '<select id="campsel" aria-label="Camp">' + camps.map(function (c) { return '<option value="' + c.id + '"' + (c.id === S.camp.id ? ' selected' : '') + '>' + esc(c.name) + (c.id === DEMO.CAMP ? ' (practice)' : '') + '</option>'; }).join('') + '</select>' : '') +
       '<span>' + esc(S.user.email) + '</span><span class="acct-role">' + (S.demo ? esc(DB.role().label) : S.roles.map(roleLabel).join(', ')) + '</span></div>' +
       '<nav aria-label="Sections">' + (groups.length > 1 ? groups.map(function (g) { return '<div class="grp">' + esc(g.name) + '</div>' + g.pages.map(link).join(''); }).join('') : pages.map(link).join('')) + '</nav>' +
-      '<div class="drawer-foot"><button class="small" id="out">Sign out</button></div>';
+      '<div class="drawer-foot"><button class="small" id="out">Sign out</button><div class="foot-brand"><span class="logo" role="img" aria-label="Camp Roster by W Group"></span><span class="small muted">Camp Roster by W Group</span></div></div>';
     $drawer.hidden = false;
     document.body.classList.add('side');
     // Phones: the first three pages this person can open, as a bar at the bottom.
