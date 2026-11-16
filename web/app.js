@@ -133,6 +133,7 @@
     money: '<path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/>',
     imports: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
     settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+    reports: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 18v-2"/><path d="M12 18v-4"/><path d="M16 18v-6"/>',
     activity: '<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/>',
     menu: '<line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/>',
     close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'
@@ -145,6 +146,7 @@
     ['mybunk', 'My bunk', 'Campers', function () { return can('bunks') && !wide() && S.myBunks.length; }],
     ['money', 'Money', 'Office', function () { return can('money'); }],
     ['imports', 'Imports', 'Office', function () { return can('imports'); }],
+    ['reports', 'Reports', 'Office', function () { return can('reports'); }],
     ['settings', 'Settings', 'Setup', function () { return isDirector(); }],
     ['activity', 'Activity', 'Setup', function () { return can('activity'); }]
   ];
@@ -230,11 +232,12 @@
     var allowed = allowedPages();
     var page = h[0] || (allowed[0] && allowed[0][0]);
     if (page === 'camper' && can('roster')) return camperPage(h[1]);
+    if (page === 'reports' && h[1] && can('reports')) { markPage('reports', 'Report'); return reportsPage(h[1]); }
     if (page === 'settings' && h[1] === 'access' && isDirector()) { markPage('settings', 'Who can see what'); return accessPage(); }
     if (!allowed.some(function (p) { return p[0] === page; })) page = allowed[0] ? allowed[0][0] : null;
     markPage(page);
     if (!page) { $main.innerHTML = '<div class="card">Nothing to show for your role yet.</div>'; return; }
-    ({ roster: rosterPage, forms: formsPage, bunks: bunksPage, mybunk: myBunkPage, money: moneyPage, imports: importsPage, settings: settingsPage, activity: activityPage })[page]();
+    ({ roster: rosterPage, forms: formsPage, bunks: bunksPage, mybunk: myBunkPage, money: moneyPage, imports: importsPage, reports: reportsPage, settings: settingsPage, activity: activityPage })[page]();
   }
   // Highlights the current page in the menu and bottom bar, and shows its name in the top bar.
   function markPage(page, title) {
@@ -868,6 +871,70 @@
     }).catch(fail);
   }
 
+
+  // ---------- Daily registration report ----------
+  // The same columns as supabase/functions/_shared/reports.js (tests/reports.test.mjs checks they match).
+  var ageOn = function (dob, on) { if (!dob) return ''; var b = new Date(dob + 'T12:00:00Z'), d = new Date(on), a = d.getUTCFullYear() - b.getUTCFullYear(); if (d.getUTCMonth() < b.getUTCMonth() || (d.getUTCMonth() === b.getUTCMonth() && d.getUTCDate() < b.getUTCDate())) a--; return String(a); };
+  var REPORT_COLUMNS = [
+    ['grade', 'Grade', function (c) { return c.grade; }],
+    ['sessions', 'Sessions', function (c) { return (c.sessions || []).join(' & '); }],
+    ['parents', 'Parents', function (c, f) { return f.parents; }],
+    ['city', 'City', function (c, f) { return [f.city, f.state].filter(Boolean).join(', '); }],
+    ['applied', 'Applied', function (c, f) { return f.applied_at ? new Date(f.applied_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''; }],
+    ['newfamily', 'New family', function (c, f) { return f.new_family ? 'New' : 'Sibling added'; }],
+    ['age', 'Age', function (c, f, data) { return ageOn(c.dob, data.to); }],
+    ['dob', 'Date of birth', function (c) { return c.dob || ''; }],
+    ['gender', 'Gender', function (c) { return c.gender; }],
+    ['phone', 'Phone', function (c, f) { return f.phone; }],
+    ['email', 'Email', function (c, f) { return f.email; }],
+    ['hebrew', 'Hebrew name', function (c) { return c.hebrew_name; }],
+    ['staffchild', 'Staff child', function (c) { return c.staff_child ? 'Yes' : ''; }],
+    ['campflow', 'Camp Flow family #', function (c, f) { return f.campflow_id; }]
+  ];
+  var REPORT_DEFAULT = ['grade', 'sessions', 'parents', 'city', 'applied', 'newfamily'];
+  function reportCols(keys) {
+    keys = keys && keys.length ? keys : REPORT_DEFAULT;
+    return keys.map(function (k) {
+      var b = REPORT_COLUMNS.find(function (x) { return x[0] === k; });
+      if (b) return { key: k, label: b[1], get: b[2] };
+      var it = (S.items || []).find(function (i) { return i.kind === 'field' && i.key === k; });
+      return it ? { key: k, label: it.label, get: function (c) { return (c.fields || {})[k]; } } : null;
+    }).filter(Boolean);
+  }
+  function reportTable(data) {
+    var cols = reportCols((S.camp.settings || {}).report_columns), rows = [];
+    (data.list || []).forEach(function (f) { (f.campers || []).forEach(function (c) { rows.push({ c: c, f: f }); }); });
+    var head = +data.campers ? data.campers + ' new camper' + (+data.campers === 1 ? '' : 's') + ' from ' + data.families + ' famil' + (+data.families === 1 ? 'y' : 'ies') + ' (' + data.new_families + ' new to camp)' : 'No new registrations';
+    return '<p><strong>' + head + '</strong> <span class="muted">· ' + esc(when(data.from)) + ' to ' + esc(when(data.to)) + '</span></p>' +
+      (rows.length ? '<div class="scroll"><table class="grid"><thead><tr><th>Camper</th>' + cols.map(function (c) { return '<th>' + esc(c.label) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+        rows.map(function (r) { return '<tr><td>' + (r.c.id ? '<a href="#camper/' + esc(r.c.id) + '">' + esc(r.c.name) + '</a>' : esc(r.c.name)) + '</td>' + cols.map(function (c) { return '<td>' + esc(c.get(r.c, r.f, data)) + '</td>'; }).join('') + '</tr>'; }).join('') +
+        '</tbody></table></div>' : '');
+  }
+  function reportsPage(id) {
+    $main.innerHTML = '<p class="muted">Loading…</p>';
+    Promise.all([
+      DB.from('daily_reports').select('*').eq('camp_id', S.camp.id).order('period_end', { ascending: false }).limit(60),
+      id ? Promise.resolve({ data: null }) : DB.rpc('registration_preview', { p_camp: S.camp.id })
+    ]).then(function (r) {
+      var list = must(r[0]) || [], prev = must(r[1]), st = S.camp.settings || {};
+      var off = st.report_enabled === false;
+      var html = '<h1>Daily registration report</h1><p class="muted" style="max-width:820px">Every morning at 8:00 except Saturday, the campers added since the last report are emailed' +
+        (isDirector() ? ' to ' + esc((st.report_to && st.report_to.length) ? st.report_to.join(', ') : 'the directors') : '') + '. Sunday\'s report covers Friday 8:00 to Sunday 8:00.' +
+        (isDirector() ? ' <a href="#settings">Change who gets it and which columns it shows</a>.' : '') + '</p>' + (off ? '<p><span class="chip warn">Turned off in Settings</span></p>' : '');
+      var shown = id ? list.find(function (x) { return x.id === id; }) : null;
+      if (id && !shown) html += '<div class="card">Report not found.</div>';
+      if (shown) html += '<p class="noprint"><a href="#reports">← All reports</a></p><div class="card"><h2 style="margin-top:0">' + esc(new Date(shown.report_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })) + '</h2>' + reportTable(shown.data) +
+        '<p class="small muted">' + (shown.error ? '<span class="chip bad">Email failed</span> ' + esc(shown.error) : shown.sent_to.length ? 'Emailed to ' + esc(shown.sent_to.join(', ')) : 'Not emailed') + '</p><button class="noprint" onclick="print()">Print</button></div>';
+      if (!id) {
+        html += '<div class="card"><h2 style="margin-top:0">So far for the next report</h2>' + reportTable(prev) + '</div>';
+        html += '<div class="card"><h2 style="margin-top:0">Past reports</h2>' + (list.length ? '<table class="grid"><thead><tr><th>Date</th><th>New campers</th><th>Families</th><th>Emailed</th></tr></thead><tbody>' + list.map(function (x) {
+          return '<tr><td><a href="#reports/' + esc(x.id) + '">' + esc(new Date(x.report_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })) + '</a></td><td>' + esc(x.data.campers) + '</td><td>' + esc(x.data.families) + '</td><td class="small">' + (x.error ? '<span class="chip bad">failed</span>' : x.sent_to.length ? esc(x.sent_to.length + ' ' + (x.sent_to.length === 1 ? 'person' : 'people')) : '') + '</td></tr>';
+        }).join('') + '</tbody></table>' : '<p class="muted">The first report arrives at 8:00 tomorrow morning (or Sunday, if tomorrow is Saturday).</p>') + '</div>';
+      }
+      $main.innerHTML = html;
+    }).catch(fail);
+  }
+
   // ---------- Settings (director) ----------
   function settingsPage() {
     $main.innerHTML = '<p class="muted">Loading…</p>';
@@ -896,6 +963,15 @@
         '<label class="check"><input type="checkbox" id="welcome"' + (st.welcome_enabled ? ' checked' : '') + '><span>Send each new family a welcome email with their links</span></label>' +
         '<label class="check"><input type="checkbox" id="rem"' + (st.reminders_enabled ? ' checked' : '') + '><span>Send automatic reminders on the schedule</span></label>' +
         '<button class="primary">Save</button></form></div>';
+      var rcols = (st.report_columns && st.report_columns.length ? st.report_columns : REPORT_DEFAULT).slice();
+      var allCols = REPORT_COLUMNS.map(function (c) { return [c[0], c[1]]; }).concat((S.items || []).filter(function (i) { return i.kind === 'field'; }).map(function (i) { return [i.key, i.label]; }));
+      var ordered = rcols.map(function (k) { return allCols.find(function (c) { return c[0] === k; }); }).filter(Boolean).concat(allCols.filter(function (c) { return rcols.indexOf(c[0]) < 0; }));
+      html += '<div class="card" id="reportcard"><h2 style="margin-top:0">Daily registration report</h2><p class="small muted">New registrations, emailed at 8:00 every morning except Saturday (Sunday covers since Friday). It\'s also under <a href="#reports">Reports</a>.</p><form id="repf">' +
+        '<label class="check"><input type="checkbox" id="repon"' + (st.report_enabled === false ? '' : ' checked') + '><span>Send the daily report</span></label>' +
+        '<label class="field">Email it to <span class="small muted">(separate addresses with commas; blank sends it to the directors)</span><input type="text" id="repto" value="' + esc((st.report_to || []).join(', ')) + '"></label>' +
+        '<fieldset class="cols"><legend>Columns <span class="small muted">(the camper\'s name always comes first; use the arrows to change the order)</span></legend><ul id="repcols" class="collist">' +
+        ordered.map(function (c) { return '<li><label class="check"><input type="checkbox" data-col="' + esc(c[0]) + '"' + (rcols.indexOf(c[0]) >= 0 ? ' checked' : '') + '><span>' + esc(c[1]) + '</span></label><span class="row"><button type="button" data-up aria-label="Move ' + esc(c[1]) + ' up">↑</button><button type="button" data-down aria-label="Move ' + esc(c[1]) + ' down">↓</button></span></li>'; }).join('') +
+        '</ul></fieldset><div class="row"><button class="primary">Save</button><button type="button" id="repdef">Back to the standard columns</button></div></form></div>';
       html += '<div class="card"><h2 style="margin-top:0">Required forms</h2>' + S.reqs.map(function (q) { return '<label class="check"><input type="checkbox" data-req="' + q.id + '"' + (q.active ? ' checked' : '') + '><span>' + esc(q.label) + ' <span class="small muted">(' + (q.scope === 'family' ? 'per family' : 'per camper') + ')</span></span></label>'; }).join('') +
         (consent ? '<label class="check" style="margin-top:12px"><input type="checkbox" id="disc"' + (consent.config.accept_disclosure ? ' checked' : '') + '><span>Count Camp Flow\'s "Medical Authorization" disclosure as the consent to treat</span></label>' : '') + '</div>';
       html += '<div class="card"><h2 style="margin-top:0">SFSP app connection</h2><p class="small muted">Lets the SFSP app pre-fill each family\'s meal form, tick it off when it\'s handed in, and read the roster. In the SFSP app\'s Settings → Roster app connection, enter:</p>' +
@@ -928,6 +1004,27 @@
         var s = Object.assign({}, S.camp.settings, { deadline: document.getElementById('dl').value || null, reply_to: document.getElementById('rt').value.trim() || null, phone: document.getElementById('ph').value.trim() || null, welcome_enabled: document.getElementById('welcome').checked, reminders_enabled: document.getElementById('rem').checked });
         DB.from('camps').update({ settings: s }).eq('id', S.camp.id).then(must).then(function () { S.camp.settings = s; toast('Saved'); }).catch(fail);
       };
+      var ul = document.getElementById('repcols');
+      ul.onclick = function (e) {
+        var b = e.target.closest('button'); if (!b) return;
+        var li = b.closest('li');
+        if (b.hasAttribute('data-up') && li.previousElementSibling) ul.insertBefore(li, li.previousElementSibling);
+        if (b.hasAttribute('data-down') && li.nextElementSibling) ul.insertBefore(li.nextElementSibling, li);
+        b.focus();
+      };
+      var saveReport = function (cols) {
+        var to = document.getElementById('repto').value.split(/[,;\s]+/).map(function (x) { return x.trim().toLowerCase(); }).filter(Boolean);
+        var bad = to.filter(function (x) { return !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x); });
+        if (bad.length) return toast('Check this address: ' + bad[0]);
+        if (!cols.length) return toast('Choose at least one column.');
+        var s2 = Object.assign({}, S.camp.settings, { report_enabled: document.getElementById('repon').checked, report_to: to, report_columns: cols });
+        DB.from('camps').update({ settings: s2 }).eq('id', S.camp.id).then(must).then(function () { S.camp.settings = s2; toast('Saved. The next report uses these.'); settingsPage(); }).catch(fail);
+      };
+      document.getElementById('repf').onsubmit = function (e) {
+        e.preventDefault();
+        saveReport([].map.call(ul.querySelectorAll('[data-col]'), function (x) { return x.checked ? x.dataset.col : null; }).filter(Boolean));
+      };
+      document.getElementById('repdef').onclick = function () { saveReport(REPORT_DEFAULT.slice()); };
       [].forEach.call($main.querySelectorAll('[data-req]'), function (cb) { cb.onchange = function () { DB.from('requirements').update({ active: cb.checked }).eq('id', cb.dataset.req).then(must).then(function () { S.reqs.find(function (q) { return q.id === cb.dataset.req; }).active = cb.checked; S.status = null; toast('Saved'); }).catch(fail); }; });
       var disc = document.getElementById('disc');
       if (disc) disc.onchange = function () { var c2 = Object.assign({}, consent.config, { accept_disclosure: disc.checked ? 'Medical Authorization' : null }); DB.from('requirements').update({ config: c2 }).eq('id', consent.id).then(must).then(function () { consent.config = c2; S.status = null; toast('Saved'); }).catch(fail); };

@@ -258,7 +258,7 @@ if (await demo.locator('[data-approve]').count()) errors.push('office sees Appro
 await viewAs('infirmary');
 if (/Settings|Money/.test(await nav())) errors.push('infirmary nav: ' + await nav());
 await viewAs('director');
-if (await nav() !== 'Roster,Forms,Bunks,Money,Imports,Settings,Activity') errors.push('director nav: ' + await nav());
+if (await nav() !== 'Roster,Forms,Bunks,Money,Imports,Reports,Settings,Activity') errors.push('director nav: ' + await nav());
 
 // Who can see what (test camp): add a Kitchen role that sees names and alerts, then view as Kitchen.
 await demo.goto('http://app.test/#settings/access'); await demo.waitForTimeout(600);
@@ -281,6 +281,29 @@ await demo.goto('http://app.test/#roster'); await demo.waitForTimeout(600);
 await demo.locator('tr.click').first().click(); await demo.waitForTimeout(600);
 if (!(await demo.locator('[data-cf="f_swim_level"]').count())) errors.push('office cannot edit the new detail');
 await demo.locator('[data-cf="f_swim_level"]').fill('Level 3'); await demo.locator('#savecf').click(); await demo.waitForTimeout(300);
+await viewAs('director');
+
+// Daily registration report: the director picks columns in Settings; the Reports tab and past reports use them.
+await demo.goto('http://app.test/#reports'); await demo.waitForTimeout(600);
+const rep = await demo.locator('main').innerText();
+if (!/Past reports/.test(rep) || !/So far for the next report/.test(rep)) errors.push('reports page: ' + rep.slice(0, 200));
+await demo.goto('http://app.test/#settings'); await demo.waitForTimeout(500);
+await demo.locator('[data-col="parents"]').uncheck(); await demo.locator('[data-col="phone"]').check();
+await demo.locator('#repcols li', { has: demo.locator('[data-col="phone"]') }).locator('[data-up]').click();
+await demo.locator('#repto').fill('office@example.com, not an address');
+await demo.locator('#repf button.primary').click(); await demo.waitForTimeout(200);
+if (!/Check this address/.test(await demo.locator('.toast').last().innerText().catch(() => ''))) errors.push('bad report address accepted');
+await demo.locator('#repto').fill('office@example.com'); await demo.locator('#repf button.primary').click(); await demo.waitForTimeout(500);
+await demo.locator('#reportcard').screenshot({ path: path.join(out, 'demo-report-settings.png') });
+await demo.goto('http://app.test/#reports'); await demo.waitForTimeout(600);
+await demo.locator('main table.grid a[href^="#reports/"]').first().click(); await demo.waitForTimeout(500);
+const rh = (await demo.locator('main table.grid thead').first().innerText().catch(() => '')).replace(/\s+/g, ' ');
+if (!/Phone/i.test(rh) || /Parents/i.test(rh)) errors.push('report columns not applied: ' + rh);
+await demo.screenshot({ path: path.join(out, 'demo-report.png'), fullPage: true });
+await viewAs('counselor@bunk-boys-1');
+if (/Reports/.test(await nav())) errors.push('counselor sees Reports');
+await viewAs('office');
+if (!/Reports/.test(await nav())) errors.push('office does not see Reports');
 await viewAs('director');
 
 // A camper link from another camp says so instead of failing.

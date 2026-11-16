@@ -273,7 +273,7 @@ end $$; rollback;
 -- ---------- Who-sees-what table ----------
 do $$ begin
   assert (select count(*) from roles where camp_id = '00000000-0000-0000-0000-0000000000c1') = 6, 'six built-in roles';
-  assert (select count(*) from perm_items where camp_id = '00000000-0000-0000-0000-0000000000c1') = 10, 'ten built-in items';
+  assert (select count(*) from perm_items where camp_id = '00000000-0000-0000-0000-0000000000c1') = 11, 'eleven built-in items (with the daily report)';
 end $$;
 
 -- Only the director edits the table; the director keeps full access.
@@ -380,6 +380,40 @@ rollback;
 begin; set local role service_role;
 delete from camps where id = '00000000-0000-0000-0000-0000000000c2';
 do $$ begin assert not exists (select 1 from roles where camp_id = '00000000-0000-0000-0000-0000000000c2'), 'camp deleted with its roles'; end $$;
+rollback;
+
+
+-- ---------- Daily registration report ----------
+begin; set local role service_role;
+update families set created_at = now() - interval '10 days'; update campers set created_at = now() - interval '10 days';
+-- A new family with two children, and a new sibling in an existing family, since yesterday.
+insert into families (id, camp_id, external_id, last_name, father_first, mother_first, created_at) values ('00000000-0000-0000-0000-0000000000f3', '00000000-0000-0000-0000-0000000000c1', 'campflow:333', 'Katz', 'Ari', 'Dina', now() - interval '3 hours');
+insert into campers (camp_id, family_id, first_name, last_name, created_at) values ('00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-0000000000f3', 'Eli', 'Katz', now() - interval '3 hours'),
+  ('00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-0000000000f3', 'Avi', 'Katz', now() - interval '3 hours'),
+  ('00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-0000000000f2', 'Baruch', 'Cohen', now() - interval '2 hours');
+do $$ declare r jsonb; begin
+  r := registration_report('00000000-0000-0000-0000-0000000000c1', now() - interval '24 hours', now());
+  assert (r ->> 'campers')::int = 3, 'three new campers';
+  assert (r ->> 'families')::int = 2 and (r ->> 'new_families')::int = 1, 'one new family, one existing family with a new sibling';
+  assert r -> 'list' -> 0 ->> 'last_name' = 'Cohen' and not (r -> 'list' -> 0 ->> 'new_family')::boolean, 'sibling listed under the existing family';
+  assert r -> 'list' -> 1 -> 'campers' @> '[{"name":"Avi Katz"},{"name":"Eli Katz"}]', 'names listed';
+  assert (registration_report('00000000-0000-0000-0000-0000000000c1', now() - interval '1 hour', now()) ->> 'campers')::int = 0, 'outside the window';
+  assert (registration_report('00000000-0000-0000-0000-0000000000c2', now() - interval '24 hours', now()) ->> 'campers')::int = 0, 'other camp';
+  insert into daily_reports (camp_id, report_date, period_start, period_end, data) values ('00000000-0000-0000-0000-0000000000c1', current_date, now() - interval '1 day', now() - interval '150 minutes', '{}');
+end $$;
+reset role;
+do $$ begin perform pg_temp.as_user('office@x.org'); end $$;
+do $$ begin
+  assert (registration_preview('00000000-0000-0000-0000-0000000000c1') ->> 'campers')::int = 1, 'preview starts where the last report ended';
+  assert (select count(*) from daily_reports) = 1, 'office sees reports';
+end $$;
+reset role;
+do $$ begin perform pg_temp.as_user('coun@x.org'); end $$;
+do $$ begin
+  assert (select count(*) from daily_reports) = 0, 'counselor does not';
+  perform registration_preview('00000000-0000-0000-0000-0000000000c1');
+  raise exception 'counselor preview allowed';
+exception when insufficient_privilege then null; end $$;
 rollback;
 
 \echo 'ALL DATABASE TESTS PASSED'

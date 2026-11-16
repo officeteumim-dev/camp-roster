@@ -144,7 +144,48 @@
     db.import_runs.push({ id: 'ir-2', camp_id: CAMP, report: 'families', file_name: 'campflow_all_families.xlsx', via: 'email', counts: { families: db.families.length, added: 2, updated: db.families.length - 2, flagged: 0 }, problems: [], created_at: created(1) });
     [['nurse@example.com', 'update', 'submissions', { status: 'approved' }], ['head.boys@example.com', 'insert', 'bunk_assignments', null], ['office@example.com', 'view', 'file', null], [email, 'insert', 'staff', { email: 'counselor@example.com', role: 'counselor' }]]
       .forEach(function (a, i) { db.audit_log.push({ id: i + 1, camp_id: CAMP, actor: a[0], action: a[1], entity: a[2], entity_id: null, detail: a[3], at: created(i + 1) }); });
+    sampleReports(db);
     return db;
+  }
+
+  // ---------- Daily registration report (the same as registration_report() in the database) ----------
+  function reportData(db, from, to) {
+    var inWin = function (t) { return t >= from && t < to; };
+    var kids = db.campers.filter(function (c) { return c.active && inWin(c.created_at); });
+    var fams = db.families.filter(function (f) { return f.active && kids.some(function (c) { return c.family_id === f.id; }); });
+    var list = fams.map(function (f) {
+      return { family_id: f.id, last_name: f.last_name, parents: [f.father_first, f.mother_first].filter(Boolean).join(' & '), new_family: f.created_at >= from, applied_at: f.applied_at,
+        city: f.city, state: f.state, phone: f.father_phone || f.mother_phone, email: f.father_email || f.mother_email, campflow_id: String(f.external_id || '').replace(/^(campflow|test):/, ''),
+        campers: kids.filter(function (c) { return c.family_id === f.id; }).sort(function (a, b) { return a.first_name.localeCompare(b.first_name); }).map(function (c) {
+          var fields = {}; (db.camper_fields || []).forEach(function (x) { if (x.camper_id === c.id && x.value != null) fields[x.item_key] = x.value; });
+          return { id: c.id, name: (c.first_name + ' ' + c.last_name).trim(), grade: c.grade, gender: c.gender, dob: c.date_of_birth, hebrew_name: c.hebrew_name, staff_child: c.staff_child, fields: fields,
+            sessions: db.enrollments.filter(function (e) { return e.camper_id === c.id; }).map(function (e) { var s = db.sessions.find(function (x) { return x.id === e.session_id; }); return s ? s.name : ''; }) };
+        }) };
+    }).sort(function (a, b) { return a.last_name.localeCompare(b.last_name) || a.parents.localeCompare(b.parents); });
+    return { from: from, to: to, campers: kids.length, families: fams.length, new_families: fams.filter(function (f) { return f.created_at >= from; }).length, list: list };
+  }
+  // The practice camp: a week of sign-ups and the 8 a.m. reports they produced (none on Saturday; Sunday covers since Friday).
+  function sampleReports(db) {
+    var R = root.DemoSeed.demoRng(31), now = Date.now();
+    var old = new Date(now - 200 * 864e5).toISOString();
+    db.families.forEach(function (f) { f.created_at = old; }); db.campers.forEach(function (c) { c.created_at = old; });
+    db.families.forEach(function (f) {
+      if (R() > 0.04) return;
+      var at = new Date(now - R() * 7 * 864e5).toISOString(), sibling = R() < 0.25;
+      if (!sibling) { f.created_at = at; f.applied_at = at; }
+      var kids = db.campers.filter(function (c) { return c.family_id === f.id; });
+      (sibling ? kids.slice(-1) : kids).forEach(function (c) { c.created_at = at; });
+    });
+    db.daily_reports = [];
+    var ends = [];
+    for (var d = 0; d < 8; d++) { var t = new Date(now - d * 864e5); t.setHours(8, 0, 0, 0); if (t.getTime() <= now && t.getDay() !== 6) ends.push(t); }
+    ends.sort(function (a, b) { return a - b; });
+    ends.forEach(function (end, i) {
+      if (i === 0) return;
+      var from = ends[i - 1].toISOString(), to = end.toISOString(), y = end.getFullYear(), m = end.getMonth() + 1, day = end.getDate();
+      db.daily_reports.push({ id: 'dr-' + i, camp_id: CAMP, report_date: y + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day, period_start: from, period_end: to,
+        data: reportData(db, from, to), sent_to: ['you (practice: no email is sent)'], error: null, created_at: to });
+    });
   }
 
   // ---------- Statuses (the same rules as the database) ----------
@@ -274,12 +315,13 @@
     ['form_status', 'Forms checklist', 'Who is missing which form. Change: send reminders, pause them, family links'],
     ['bunks', 'Bunks', 'Bunk lists. Change: create bunks, move campers'], ['money', 'Money', 'Charges, payments and balances'],
     ['imports', 'Camp Flow imports', 'Import history. Change: import a report by hand'], ['setup', 'Sessions and required forms', 'Change: add sessions and dates, turn required forms on or off'],
-    ['activity', 'Activity log', 'Who did what, and who opened which form']];
+    ['activity', 'Activity log', 'Who did what, and who opened which form'],
+    ['reports', 'Daily registration report', 'New registrations each morning, and who it is emailed to']];
   // [role, item, see, change]: tests/demo.test.mjs checks these match the database migration.
   var PERM_DEFAULTS = [['office', 'roster', 1, 1], ['office', 'parent_contacts', 1, 1], ['office', 'alerts', 1, 0], ['office', 'health_forms', 1, 0], ['office', 'form_status', 1, 1],
     ['office', 'bunks', 1, 1], ['office', 'imports', 1, 1], ['office', 'setup', 1, 1], ['finance', 'roster', 1, 0], ['finance', 'parent_contacts', 1, 0], ['finance', 'money', 1, 0],
     ['infirmary', 'roster', 1, 0], ['infirmary', 'parent_contacts', 1, 0], ['infirmary', 'alerts', 1, 1], ['infirmary', 'health_forms', 1, 1], ['infirmary', 'form_status', 1, 0], ['infirmary', 'bunks', 1, 0],
-    ['head_counselor', 'roster', 1, 0], ['head_counselor', 'alerts', 1, 0], ['head_counselor', 'bunks', 1, 1], ['counselor', 'roster', 1, 0], ['counselor', 'alerts', 1, 0], ['counselor', 'bunks', 1, 0]];
+    ['head_counselor', 'roster', 1, 0], ['head_counselor', 'alerts', 1, 0], ['head_counselor', 'bunks', 1, 1], ['counselor', 'roster', 1, 0], ['counselor', 'alerts', 1, 0], ['counselor', 'bunks', 1, 0], ['office', 'reports', 1, 0]];
   function seedAccess(db) {
     db.roles = ROLE_DEFAULTS.map(function (r, i) { return { camp_id: CAMP, key: r[0], label: r[1], scope: r[2], builtin: true, sort: i + 1 }; });
     db.perm_items = ITEM_DEFAULTS.map(function (r, i) { return { camp_id: CAMP, key: r[0], label: r[1], help: r[2], kind: 'builtin', sort: i + 1 }; });
@@ -341,6 +383,7 @@
         case 'finance_accounts': case 'finance_entries': return canAny('money', 'see');
         case 'import_runs': return canAny('imports', 'see');
         case 'audit_log': return canAny('activity', 'see');
+        case 'daily_reports': return canAny('reports', 'see');
         default: return false;
       }
     }
@@ -472,7 +515,12 @@
       },
       sfsp_connection: function () { if (me.role !== 'director') return null; var s = db.camp_secrets[0]; return { sfsp_camp_id: s.sfsp_camp_id, sfsp_form_url: s.sfsp_form_url, has_secret: true, last_message: null }; },
       set_sfsp_connection: function (a) { if (me.role !== 'director') notAllowed(); var s = db.camp_secrets[0]; s.sfsp_camp_id = a.p_sfsp_camp_id || s.sfsp_camp_id; s.sfsp_form_url = a.p_form_url || s.sfsp_form_url; save(); return null; },
-      log_file_view: function () { return null; }
+      log_file_view: function () { return null; },
+      registration_preview: function () {
+        if (!canAny('reports', 'see')) notAllowed();
+        var last = (db.daily_reports || []).map(function (r) { return r.period_end; }).sort().pop();
+        return reportData(db, last || new Date(Date.now() - 864e5).toISOString(), new Date().toISOString());
+      }
     };
     return {
       demo: true,

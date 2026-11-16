@@ -4,6 +4,7 @@
 import { readXlsx } from '../_shared/xlsx.js';
 import * as CF from '../_shared/campflow.js';
 import { admin, env, json, fail, cors, staffFor, campBySlugOrId, sameText, chunked, must } from '../_shared/server.js';
+import { localToIso } from '../_shared/reports.js';
 
 const REPORT_HOSTS = /^https:\/\/([a-z0-9-]+\.)*(digitaloceanspaces\.com|campflow\.org)\//i;
 
@@ -69,6 +70,8 @@ async function loadAll(q) {
 
 async function importFamilies(db, camp, rows) {
   const { families, problems } = CF.parseFamilies(rows);
+  // Camp Flow's application times are the camp's local time.
+  for (const p of families) p.family.applied_at = localToIso(p.family.applied_at, camp.timezone || 'America/New_York');
   const existing = await loadAll(() => db.from('families').select('id, external_id, active').eq('camp_id', camp.id));
   const plan = CF.planFamilies(families, { families: existing });
   const now = new Date().toISOString();

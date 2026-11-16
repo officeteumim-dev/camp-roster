@@ -44,6 +44,10 @@ Variables: `APP_URL` (the Netlify address, e.g. `https://roster.wgcamps.com`), `
 - [ ] Send yourself a test: add your own family in Camp Flow or use "Copy family link" on a test family.
 - [ ] Turn on welcome emails, then reminders.
 
+## Daily registration report
+- Starts by itself after deploy: the migration copies the daily email job's address and key into an hourly `daily-registration-report` job, and the report goes out at 8:00 a.m. New York time (not Saturdays). Recipients default to the directors; change them and the columns in Settings.
+- Needs `RESEND_API_KEY` (already set). Check: the next morning's report appears under Reports with "Emailed to …".
+
 ## Open questions
 - Does Camp Flow's Medical Authorization disclosure count as consent to treat?
 - Health-record retention period for New York.

@@ -133,6 +133,7 @@ test('who-sees-what defaults in the test camp match the database migration', asy
   const block = sql.slice(sql.indexOf("select p_camp, d.r, d.i, d.s, d.c from (values"), sql.indexOf(') as d(r, i, s, c)'));
   const fromSql = [...block.matchAll(/\('(\w+)', '(\w+)', (true|false), (true|false)\)/g)].map(m => [m[1], m[2], m[3] === 'true' ? 1 : 0, m[4] === 'true' ? 1 : 0]);
   assert.ok(fromSql.length > 20);
+  fromSql.push(['office', 'reports', 1, 0]);   // added by migration 20261116000010
   assert.deepEqual(plain(DemoDB.PERM_DEFAULTS).sort(), fromSql.sort());
 });
 
