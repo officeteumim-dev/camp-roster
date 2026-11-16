@@ -50,7 +50,7 @@
 
   // ---------- sign in ----------
   function showSignIn(msg) {
-    $top.hidden = true;
+    hideChrome();
     $main.innerHTML = '<div class="card signin"><h1>Camp roster</h1><p class="muted">Sign in with the email address the camp office added for you.</p>' +
       (msg ? '<div class="error">' + esc(msg) + '</div>' : '') +
       '<p><button class="primary" id="g">Sign in with Google</button></p><hr style="border:0;border-top:1px solid var(--line);margin:18px 0">' +
@@ -81,7 +81,7 @@
   }
 
   function showNoAccess() {
-    $top.hidden = true;
+    hideChrome();
     $main.innerHTML = '<div class="card signin"><h1>Camp roster</h1><p>Your account (' + esc(S.user.email) + ') has not been given access to a camp yet. Ask your camp director to add you.</p>' +
       '<p>Meanwhile, you can explore <strong>' + DEMO.NAME + '</strong>, a practice camp with 500 sample campers. Try anything: nothing you do there is saved.</p>' +
       '<p class="row"><button class="primary" id="godemo">Explore ' + DEMO.NAME + '</button><button id="out2">Sign out</button></p></div>';
@@ -123,23 +123,86 @@
     }).catch(fail);
   }
 
+  // Menu icons (the same Lucide line icons the SFSP app uses).
+  var svg = function (d) { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>'; };
+  var ICON = {
+    roster: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    forms: '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/>',
+    bunks: '<path d="M2 20v-8a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v8"/><path d="M4 10V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v4"/><path d="M12 4v6"/><path d="M2 18h20"/>',
+    mybunk: '<path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/>',
+    money: '<path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/>',
+    imports: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
+    settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+    activity: '<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/>',
+    menu: '<line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/>',
+    close: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'
+  };
+  // [key, label, group, who can see it]
   var PAGES = [
-    ['roster', 'Roster', function () { return can('roster'); }],
-    ['forms', 'Forms', function () { return can('form_status'); }],
-    ['bunks', 'Bunks', function () { return can('bunks') && wide(); }],
-    ['mybunk', 'My bunk', function () { return can('bunks') && !wide() && S.myBunks.length; }],
-    ['money', 'Money', function () { return can('money'); }],
-    ['imports', 'Imports', function () { return can('imports'); }],
-    ['settings', 'Settings', function () { return isDirector(); }],
-    ['activity', 'Activity', function () { return can('activity'); }]
+    ['roster', 'Roster', 'Campers', function () { return can('roster'); }],
+    ['forms', 'Forms', 'Campers', function () { return can('form_status'); }],
+    ['bunks', 'Bunks', 'Campers', function () { return can('bunks') && wide(); }],
+    ['mybunk', 'My bunk', 'Campers', function () { return can('bunks') && !wide() && S.myBunks.length; }],
+    ['money', 'Money', 'Office', function () { return can('money'); }],
+    ['imports', 'Imports', 'Office', function () { return can('imports'); }],
+    ['settings', 'Settings', 'Setup', function () { return isDirector(); }],
+    ['activity', 'Activity', 'Setup', function () { return can('activity'); }]
   ];
+  var allowedPages = function () { return PAGES.filter(function (p) { return p[3](); }); };
+
+  // ---------- menu: sidebar on wide screens (the menu button shrinks it to icons), slide-in panel on phones ----------
+  var $drawer = document.getElementById('drawer'), $drawerBg = document.getElementById('drawerBg'), $bot = document.getElementById('botbar'), $menuBtn = document.getElementById('menuBtn');
+  var wideScreen = function () { return window.matchMedia('(min-width:1024px)').matches; };
+  function syncSide() {
+    var mini = false; try { mini = localStorage.getItem('roster-side-mini') === '1'; } catch (e) { }
+    document.body.classList.toggle('mini', mini);
+    if (wideScreen()) {
+      $drawer.classList.remove('open'); $drawerBg.hidden = true; $drawerBg.classList.remove('open');
+      $drawer.setAttribute('aria-hidden', 'false'); $drawer.inert = false;
+      $menuBtn.setAttribute('aria-label', mini ? 'Expand menu' : 'Collapse menu'); $menuBtn.setAttribute('aria-expanded', mini ? 'false' : 'true');
+    } else {
+      var open = $drawer.classList.contains('open');
+      $drawer.setAttribute('aria-hidden', open ? 'false' : 'true'); $drawer.inert = !open;
+      $menuBtn.setAttribute('aria-label', 'Open menu'); $menuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    [].forEach.call($drawer.querySelectorAll('nav a'), function (a) { a.title = wideScreen() && mini ? a.textContent : ''; });
+  }
+  function openDrawer() { $drawer.classList.add('open'); $drawerBg.hidden = false; requestAnimationFrame(function () { $drawerBg.classList.add('open'); }); syncSide(); var a = $drawer.querySelector('[aria-current="page"]') || $drawer.querySelector('a'); if (a) a.focus(); }
+  function closeDrawer() { if (!$drawer.classList.contains('open')) return; $drawer.classList.remove('open'); $drawerBg.classList.remove('open'); setTimeout(function () { if (!$drawer.classList.contains('open')) $drawerBg.hidden = true; }, 200); syncSide(); }
+  $menuBtn.onclick = function () {
+    if (wideScreen()) { try { localStorage.setItem('roster-side-mini', document.body.classList.contains('mini') ? '0' : '1'); } catch (e) { } syncSide(); }
+    else openDrawer();
+  };
+  $drawerBg.onclick = closeDrawer;
+  $drawer.addEventListener('click', function (e) { if (e.target.closest('nav a') || e.target.closest('[data-close]')) closeDrawer(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && $drawer.classList.contains('open')) { closeDrawer(); $menuBtn.focus(); } });
+  window.addEventListener('resize', function () { clearTimeout(window.__sideT); window.__sideT = setTimeout(syncSide, 120); });
+  function hideChrome() {
+    $top.hidden = true; $drawer.hidden = true; $drawerBg.hidden = true; $bot.hidden = true;
+    document.body.classList.remove('side', 'has-bot');
+  }
+
   function drawTop() {
     var camps = []; S.access.forEach(function (a) { if (!camps.some(function (c) { return c.id === a.camp_id; })) camps.push({ id: a.camp_id, name: a.camp_name }); });
+    var pages = allowedPages();
     $top.hidden = false;
-    $top.innerHTML = '<div class="in"><span class="brand">' + esc(S.camp.name) + '</span><nav class="tabs" aria-label="Sections">' +
-      PAGES.filter(function (p) { return p[2](); }).map(function (p) { return '<a href="#' + p[0] + '" data-p="' + p[0] + '">' + p[1] + '</a>'; }).join('') +
-      '</nav><span class="who">' + (camps.length > 1 ? '<select id="campsel" aria-label="Camp">' + camps.map(function (c) { return '<option value="' + c.id + '"' + (c.id === S.camp.id ? ' selected' : '') + '>' + esc(c.name) + (c.id === DEMO.CAMP ? ' (practice)' : '') + '</option>'; }).join('') + '</select>' : '') +
-      esc(S.user.email) + ' · ' + (S.demo ? esc(DB.role().label) : S.roles.map(roleLabel).join(', ')) + ' <button id="out">Sign out</button></span></div>';
+    document.getElementById('campName').textContent = S.camp.name;
+    var groups = [];
+    pages.forEach(function (p) { var g = groups.find(function (x) { return x.name === p[2]; }); if (!g) groups.push(g = { name: p[2], pages: [] }); g.pages.push(p); });
+    var link = function (p) { return '<a href="#' + p[0] + '" data-p="' + p[0] + '">' + svg(ICON[p[0]]) + '<span>' + p[1] + '</span></a>'; };
+    $drawer.innerHTML = '<div class="drawer-head"><b>' + esc(S.camp.name) + '</b><button class="iconbtn" data-close aria-label="Close menu">' + svg(ICON.close) + '</button></div>' +
+      '<div class="drawer-acct">' + (camps.length > 1 ? '<select id="campsel" aria-label="Camp">' + camps.map(function (c) { return '<option value="' + c.id + '"' + (c.id === S.camp.id ? ' selected' : '') + '>' + esc(c.name) + (c.id === DEMO.CAMP ? ' (practice)' : '') + '</option>'; }).join('') + '</select>' : '') +
+      '<span>' + esc(S.user.email) + '</span><span class="acct-role">' + (S.demo ? esc(DB.role().label) : S.roles.map(roleLabel).join(', ')) + '</span></div>' +
+      '<nav aria-label="Sections">' + (groups.length > 1 ? groups.map(function (g) { return '<div class="grp">' + esc(g.name) + '</div>' + g.pages.map(link).join(''); }).join('') : pages.map(link).join('')) + '</nav>' +
+      '<div class="drawer-foot"><button class="small" id="out">Sign out</button></div>';
+    $drawer.hidden = false;
+    document.body.classList.add('side');
+    // Phones: the first three pages this person can open, as a bar at the bottom.
+    var quick = pages.slice(0, 3);
+    $bot.innerHTML = quick.map(function (p) { return '<a href="#' + p[0] + '" data-p="' + p[0] + '">' + svg(ICON[p[0]]) + '<span>' + p[1] + '</span></a>'; }).join('');
+    $bot.hidden = quick.length < 2;
+    document.body.classList.toggle('has-bot', quick.length >= 2);
+    syncSide();
     document.getElementById('out').onclick = function () { DEMO.clear(S.user.email); sb.auth.signOut().then(function () { location.hash = ''; showSignIn(); }); };
     var bar = document.getElementById('demobar');
     if (S.demo) {
@@ -164,14 +227,20 @@
   function route() {
     if (!S.camp) return;
     var h = location.hash.slice(1).split('/');
-    var allowed = PAGES.filter(function (p) { return p[2](); });
+    var allowed = allowedPages();
     var page = h[0] || (allowed[0] && allowed[0][0]);
     if (page === 'camper' && can('roster')) return camperPage(h[1]);
-    if (page === 'settings' && h[1] === 'access' && isDirector()) { [].forEach.call($top.querySelectorAll('nav a'), function (a) { a.classList.toggle('on', a.dataset.p === 'settings'); }); return accessPage(); }
+    if (page === 'settings' && h[1] === 'access' && isDirector()) { markPage('settings', 'Who can see what'); return accessPage(); }
     if (!allowed.some(function (p) { return p[0] === page; })) page = allowed[0] ? allowed[0][0] : null;
-    [].forEach.call($top.querySelectorAll('nav a'), function (a) { a.classList.toggle('on', a.dataset.p === page); a.setAttribute('aria-current', a.dataset.p === page ? 'page' : 'false'); });
+    markPage(page);
     if (!page) { $main.innerHTML = '<div class="card">Nothing to show for your role yet.</div>'; return; }
     ({ roster: rosterPage, forms: formsPage, bunks: bunksPage, mybunk: myBunkPage, money: moneyPage, imports: importsPage, settings: settingsPage, activity: activityPage })[page]();
+  }
+  // Highlights the current page in the menu and bottom bar, and shows its name in the top bar.
+  function markPage(page, title) {
+    [].forEach.call(document.querySelectorAll('#drawer nav a, #botbar a'), function (a) { a.classList.toggle('on', a.dataset.p === page); if (a.dataset.p === page) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
+    var p = PAGES.find(function (x) { return x[0] === page; });
+    document.getElementById('pageTitle').textContent = title || (p ? p[1] : '');
   }
   window.addEventListener('hashchange', route);
   document.addEventListener('click', function (e) { if (e.target.closest('[data-print]')) window.print(); });
@@ -444,7 +513,7 @@
 
   // ---------- Camper record ----------
   function camperPage(id) {
-    [].forEach.call($top.querySelectorAll('nav a'), function (a) { a.classList.toggle('on', a.dataset.p === 'forms'); });
+    markPage('forms', 'Camper');
     $main.innerHTML = '<p class="muted">Loading…</p>';
     DB.from('campers').select('*').eq('id', id).eq('camp_id', S.camp.id).maybeSingle().then(function (r) {
       var c = r.error ? null : r.data;
@@ -730,7 +799,7 @@
     ]).then(function (r) {
       var roles = must(r[0]), items = must(r[1]), perms = must(r[2]), staff = must(r[3]);
       S.roleList = roles; S.items = items;
-      if (S.demo) { drawTop(); [].forEach.call($top.querySelectorAll('nav a'), function (a) { a.classList.toggle('on', a.dataset.p === 'settings'); }); }   // "Viewing as" lists new roles
+      if (S.demo) { drawTop(); markPage('settings', 'Who can see what'); }   // "Viewing as" lists new roles
       var P = {}; perms.forEach(function (p) { P[p.role_key + '|' + p.item_key] = p; });
       var used = {}; staff.forEach(function (x) { used[x.role] = (used[x.role] || 0) + 1; });
       var html = '<p class="noprint"><a href="#settings">← Settings</a></p><h1>Who can see what</h1>' +

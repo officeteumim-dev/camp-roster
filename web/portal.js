@@ -59,7 +59,8 @@
     d.campers.forEach(function (c) { c.requirements.forEach(function (r) { all.push(r.status); }); });
     var done = all.filter(function (s) { return DONE[s]; }).length;
     if (d.demo) html += '<div class="demonote" role="status"><strong>Practice family page in ' + esc(d.camp.name) + '.</strong> This is what a family sees. Try anything: forms you send here show up in the test camp, but nothing is saved, files aren\'t kept, and the SFSP button opens the SFSP app\'s practice form.</div>';
-    html += '<div class="hello"><p class="muted small">' + esc(d.camp.name) + '</p><h1>' + esc(parentsOf(d)) + '</h1>';
+    var cn = document.getElementById('campName'); if (cn) { cn.textContent = d.camp.name; document.title = d.camp.name + ' forms'; }
+    html += '<div class="hello"><p class="muted small" style="text-transform:uppercase;letter-spacing:.08em;font-weight:700;margin:0">Camp forms</p><h1>' + esc(parentsOf(d)) + '</h1>';
     html += '<p>' + (done === all.length ? 'Everything is in. Thank you!' : 'Here is what the camp still needs' + (d.camp.deadline ? ', by <strong>' + esc(fmtDate(d.camp.deadline)) + '</strong>' : '') + '. You can do a little at a time; your progress is saved.') + '</p>';
     html += '<div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="' + all.length + '" aria-valuenow="' + done + '" aria-label="Forms completed"><i style="width:' + (all.length ? Math.round(done / all.length * 100) : 0) + '%"></i></div>';
     html += '<p class="small muted">' + done + ' of ' + all.length + ' done</p></div>';
