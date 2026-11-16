@@ -64,6 +64,13 @@
   }
 
   function start() {
+    // A failed Google or email sign-in comes back as ?error_description=... : say so instead of a silent sign-in page.
+    var q = new URLSearchParams(location.search + '&' + location.hash.replace(/^#/, ''));
+    if (q.get('error_description')) {
+      var why = q.get('error_description');
+      history.replaceState(null, '', location.pathname);
+      return showSignIn('Sign-in didn\'t work: ' + why.replace(/\+/g, ' ') + '. Try again, or use the emailed link instead.');
+    }
     sb.auth.getSession().then(function (r) {
       var s = r.data.session;
       if (!s) return showSignIn();
