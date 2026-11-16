@@ -404,6 +404,21 @@ begin
   insert into public.audit_log (camp_id, actor, action, entity, detail) values (p_camp, public.my_email(), 'update', 'sfsp_connection', jsonb_build_object('secret_changed', sec is not null));
 end $$;
 
+-- Uploaded form files follow the table too (Health forms). Done here, before the old checks are removed.
+do $$ begin
+  if exists (select 1 from information_schema.tables where table_schema = 'storage' and table_name = 'objects') then
+    drop policy if exists forms_read on storage.objects;
+    drop policy if exists forms_upload on storage.objects;
+    drop policy if exists forms_delete on storage.objects;
+    create policy forms_read on storage.objects for select to authenticated
+      using (bucket_id = 'forms' and public.can(public.forms_camp(name), 'health_forms', 'see'));
+    create policy forms_upload on storage.objects for insert to authenticated
+      with check (bucket_id = 'forms' and public.can(public.forms_camp(name), 'health_forms', 'change'));
+    create policy forms_delete on storage.objects for delete to authenticated
+      using (bucket_id = 'forms' and public.is_director(public.forms_camp(name)));
+  end if;
+end $$;
+
 -- The old fixed-role checks are no longer used anywhere.
 drop function public.head_counselor_camper(uuid);
 drop function public.head_counselor_session(uuid, uuid);
