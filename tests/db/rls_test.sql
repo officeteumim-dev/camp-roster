@@ -397,6 +397,8 @@ do $$ declare r jsonb; begin
   assert (r ->> 'families')::int = 2 and (r ->> 'new_families')::int = 1, 'one new family, one existing family with a new sibling';
   assert r -> 'list' -> 0 ->> 'last_name' = 'Cohen' and not (r -> 'list' -> 0 ->> 'new_family')::boolean, 'sibling listed under the existing family';
   assert r -> 'list' -> 1 -> 'campers' @> '[{"name":"Avi Katz"},{"name":"Eli Katz"}]', 'names listed';
+  assert r -> 'list' -> 1 ->> 'father' = 'Ari Katz' and r -> 'list' -> 1 ->> 'sfsp' = 'missing', 'father and SFSP status';
+  assert jsonb_array_length(r -> 'list' -> 1 -> 'campers' -> 0 -> 'missing_forms') > 0, 'forms still missing listed';
   assert (registration_report('00000000-0000-0000-0000-0000000000c1', now() - interval '1 hour', now()) ->> 'campers')::int = 0, 'outside the window';
   assert (registration_report('00000000-0000-0000-0000-0000000000c2', now() - interval '24 hours', now()) ->> 'campers')::int = 0, 'other camp';
   insert into daily_reports (camp_id, report_date, period_start, period_end, data) values ('00000000-0000-0000-0000-0000000000c1', current_date, now() - interval '1 day', now() - interval '150 minutes', '{}');

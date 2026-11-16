@@ -1021,7 +1021,24 @@
     ['email', 'Email', function (c, f) { return f.email; }],
     ['hebrew', 'Hebrew name', function (c) { return c.hebrew_name; }],
     ['staffchild', 'Staff child', function (c) { return c.staff_child ? 'Yes' : ''; }],
-    ['campflow', 'Camp Flow family #', function (c, f) { return f.campflow_id; }]
+    ['campflow', 'Camp Flow family #', function (c, f) { return f.campflow_id; }],
+    ['father', 'Father', function (c, f) { return f.father; }],
+    ['father_phone', 'Father phone', function (c, f) { return f.father_phone; }],
+    ['father_email', 'Father email', function (c, f) { return f.father_email; }],
+    ['mother', 'Mother', function (c, f) { return f.mother; }],
+    ['mother_phone', 'Mother phone', function (c, f) { return f.mother_phone; }],
+    ['mother_email', 'Mother email', function (c, f) { return f.mother_email; }],
+    ['address', 'Address', function (c, f) { return f.address; }],
+    ['emergency', 'Emergency contacts', function (c, f) { return f.emergency; }],
+    ['affiliation', 'Affiliation', function (c, f) { return f.affiliation; }],
+    ['occupations', 'Occupations', function (c, f) { return [f.father_occupation, f.mother_occupation].filter(Boolean).join(' / '); }],
+    ['balance', 'Balance', function (c, f) { return f.balance_cents == null ? '' : (f.balance_cents < 0 ? '-' : '') + '$' + (Math.abs(f.balance_cents) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 }); }],
+    ['sfsp', 'SFSP form', function (c, f) { return ({ received: 'Received', missing: 'Missing', not_needed: 'Not needed' })[f.sfsp] || ''; }],
+    ['missing', 'Forms missing', function (c) { return (c.missing_forms || []).join(', '); }],
+    ['alert', 'Medical alert', function (c) { return c.alert; }],
+    ['bunk', 'Bunk', function (c) { return (c.bunks || []).join(', '); }],
+    ['legal', 'Legal name', function (c) { return c.legal_name; }],
+    ['camper_id', 'Camp Flow camper #', function (c) { return c.campflow_camper_id; }]
   ];
   var REPORT_DEFAULT = ['grade', 'sessions', 'parents', 'city', 'applied', 'newfamily'];
   function reportCols(keys) {

@@ -326,6 +326,7 @@ const rep = await demo.locator('main').innerText();
 if (!/Past reports/.test(rep) || !/So far for the next report/.test(rep)) errors.push('reports page: ' + rep.slice(0, 200));
 await demo.goto('http://app.test/#settings'); await demo.waitForTimeout(500);
 await demo.locator('[data-col="parents"]').uncheck(); await demo.locator('[data-col="phone"]').check();
+await demo.locator('[data-col="missing"]').check(); await demo.locator('[data-col="balance"]').check(); await demo.locator('[data-col="mother"]').check();
 await demo.locator('#repcols li', { has: demo.locator('[data-col="phone"]') }).locator('[data-up]').click();
 await demo.locator('#repto').fill('office@example.com, not an address');
 await demo.locator('#repf button.primary').click(); await demo.waitForTimeout(200);
@@ -335,7 +336,7 @@ await demo.locator('#reportcard').screenshot({ path: path.join(out, 'demo-report
 await demo.goto('http://app.test/#reports'); await demo.waitForTimeout(600);
 await demo.locator('main table.grid a[href^="#reports/"]').first().click(); await demo.waitForTimeout(500);
 const rh = (await demo.locator('main table.grid thead').first().innerText().catch(() => '')).replace(/\s+/g, ' ');
-if (!/Phone/i.test(rh) || /Parents/i.test(rh)) errors.push('report columns not applied: ' + rh);
+if (!/Phone/i.test(rh) || /Parents/i.test(rh) || !/Forms missing/i.test(rh) || !/Balance/i.test(rh) || !/Mother/i.test(rh)) errors.push('report columns not applied: ' + rh);
 await demo.screenshot({ path: path.join(out, 'demo-report.png'), fullPage: true });
 await demo.goto('http://app.test/#reports'); await demo.waitForTimeout(500);
 const beforeRuns = await demo.locator('main table.grid a[href^="#reports/"]').count();

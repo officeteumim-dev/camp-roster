@@ -156,9 +156,18 @@
     var list = fams.map(function (f) {
       return { family_id: f.id, last_name: f.last_name, parents: [f.father_first, f.mother_first].filter(Boolean).join(' & '), new_family: f.created_at >= from, applied_at: f.applied_at,
         city: f.city, state: f.state, phone: f.father_phone || f.mother_phone, email: f.father_email || f.mother_email, campflow_id: String(f.external_id || '').replace(/^(campflow|test):/, ''),
+        father: [f.father_title, f.father_first, f.last_name].filter(Boolean).join(' '), father_phone: f.father_phone, father_email: f.father_email, father_occupation: f.father_occupation || null,
+        mother: [f.mother_title, f.mother_first, f.last_name].filter(Boolean).join(' '), mother_phone: f.mother_phone, mother_email: f.mother_email, mother_occupation: f.mother_occupation || null,
+        address: [f.address, f.city, [f.state, f.zip].filter(Boolean).join(' ')].filter(Boolean).join(', '), zip: f.zip, affiliation: f.affiliation, emergency: (f.emergency_contacts || []).join('; '),
+        balance_cents: (function () { var e = db.finance_entries.filter(function (x) { return x.family_id === f.id; }); return e.length ? e.reduce(function (t, x) { return t + (x.kind === 'payment' ? -x.amount_cents : x.amount_cents); }, 0) : null; })(),
+        sfsp: (function () { var r = db.requirements.find(function (q) { return q.kind === 'sfsp' && q.active; }); return r ? statusFor(db, r, f, null) : null; })(),
         campers: kids.filter(function (c) { return c.family_id === f.id; }).sort(function (a, b) { return a.first_name.localeCompare(b.first_name); }).map(function (c) {
           var fields = {}; (db.camper_fields || []).forEach(function (x) { if (x.camper_id === c.id && x.value != null) fields[x.item_key] = x.value; });
+          var h = (db.camper_health || []).find(function (x) { return x.camper_id === c.id; });
           return { id: c.id, name: (c.first_name + ' ' + c.last_name).trim(), grade: c.grade, gender: c.gender, dob: c.date_of_birth, hebrew_name: c.hebrew_name, staff_child: c.staff_child, fields: fields,
+            legal_name: [c.legal_first, c.legal_last].filter(Boolean).join(' ') || null, campflow_camper_id: String(c.external_id || '').replace(/^(campflow:camper|test):?/, '') || null, alert: h ? h.alert : null,
+            bunks: db.bunk_assignments.filter(function (a) { return a.camper_id === c.id; }).map(function (a) { var b = db.bunks.find(function (x) { return x.id === a.bunk_id; }); return b ? b.name : ''; }).filter(Boolean),
+            missing_forms: db.requirements.filter(function (r) { return r.active && ['missing', 'rejected'].indexOf(statusFor(db, r, f, r.scope === 'camper' ? c.id : null)) >= 0; }).sort(function (a, b) { return a.sort - b.sort; }).map(function (r) { return r.label; }),
             sessions: db.enrollments.filter(function (e) { return e.camper_id === c.id; }).map(function (e) { var s = db.sessions.find(function (x) { return x.id === e.session_id; }); return s ? s.name : ''; }) };
         }) };
     }).sort(function (a, b) { return a.last_name.localeCompare(b.last_name) || a.parents.localeCompare(b.parents); });

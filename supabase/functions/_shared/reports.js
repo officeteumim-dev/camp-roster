@@ -55,7 +55,24 @@ export const REPORT_COLUMNS = [
   ['email', 'Email', (c, f) => f.email],
   ['hebrew', 'Hebrew name', (c) => c.hebrew_name],
   ['staffchild', 'Staff child', (c) => c.staff_child ? 'Yes' : ''],
-  ['campflow', 'Camp Flow family #', (c, f) => f.campflow_id]
+  ['campflow', 'Camp Flow family #', (c, f) => f.campflow_id],
+  ['father', 'Father', (c, f) => f.father],
+  ['father_phone', 'Father phone', (c, f) => f.father_phone],
+  ['father_email', 'Father email', (c, f) => f.father_email],
+  ['mother', 'Mother', (c, f) => f.mother],
+  ['mother_phone', 'Mother phone', (c, f) => f.mother_phone],
+  ['mother_email', 'Mother email', (c, f) => f.mother_email],
+  ['address', 'Address', (c, f) => f.address],
+  ['emergency', 'Emergency contacts', (c, f) => f.emergency],
+  ['affiliation', 'Affiliation', (c, f) => f.affiliation],
+  ['occupations', 'Occupations', (c, f) => [f.father_occupation, f.mother_occupation].filter(Boolean).join(' / ')],
+  ['balance', 'Balance', (c, f) => f.balance_cents == null ? '' : (f.balance_cents < 0 ? '-' : '') + '$' + (Math.abs(f.balance_cents) / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })],
+  ['sfsp', 'SFSP form', (c, f) => ({ received: 'Received', missing: 'Missing', not_needed: 'Not needed' })[f.sfsp] || ''],
+  ['missing', 'Forms missing', (c) => (c.missing_forms || []).join(', ')],
+  ['alert', 'Medical alert', (c) => c.alert],
+  ['bunk', 'Bunk', (c) => (c.bunks || []).join(', ')],
+  ['legal', 'Legal name', (c) => c.legal_name],
+  ['camper_id', 'Camp Flow camper #', (c) => c.campflow_camper_id]
 ];
 export const REPORT_DEFAULT = ['grade', 'sessions', 'parents', 'city', 'applied', 'newfamily'];
 
