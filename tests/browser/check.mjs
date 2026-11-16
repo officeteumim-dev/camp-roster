@@ -247,7 +247,7 @@ if (await nav() !== 'Roster,Bunks') errors.push('head counselor nav: ' + await n
 await demo.goto('http://app.test/#roster'); await demo.waitForTimeout(800);
 const hc = await demo.locator('main p.small').first().innerText();
 if (!/250 of 250/.test(hc)) errors.push('head counselor roster: ' + hc);
-if (/Father phone/.test(await demo.locator('table.grid thead').innerText())) errors.push('head counselor sees parent phones');
+if (/Father phone/i.test(await demo.locator('table.grid thead').innerText())) errors.push('head counselor sees parent phones');
 await demo.screenshot({ path: path.join(out, 'demo-as-head.png') });
 await viewAs('finance');
 if (!/Money/.test(await nav()) || /Forms/.test(await nav())) errors.push('finance nav: ' + await nav());
@@ -274,7 +274,7 @@ await viewAs('kitchen');
 if (await nav() !== 'Roster') errors.push('kitchen nav: ' + await nav());
 await demo.goto('http://app.test/#roster'); await demo.waitForTimeout(800);
 const kh = await demo.locator('table.grid thead').innerText();
-if (!/Alert/.test(kh) || /Father/.test(kh)) errors.push('kitchen roster columns: ' + kh.replace(/\s+/g, ' '));
+if (!/Alert/i.test(kh) || /Father/i.test(kh)) errors.push('kitchen roster columns: ' + kh.replace(/\s+/g, ' '));
 await demo.screenshot({ path: path.join(out, 'demo-as-kitchen.png') });
 await viewAs('office');
 await demo.goto('http://app.test/#roster'); await demo.waitForTimeout(600);
