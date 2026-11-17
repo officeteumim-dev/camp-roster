@@ -144,6 +144,14 @@
     db.import_runs.push({ id: 'ir-2', camp_id: CAMP, report: 'families', file_name: 'campflow_all_families.xlsx', via: 'email', counts: { families: db.families.length, added: 2, updated: db.families.length - 2, flagged: 0 }, problems: [], created_at: created(1) });
     [['nurse@example.com', 'update', 'submissions', { status: 'approved' }], ['head.boys@example.com', 'insert', 'bunk_assignments', null], ['office@example.com', 'view', 'file', null], [email, 'insert', 'staff', { email: 'counselor@example.com', role: 'counselor' }]]
       .forEach(function (a, i) { db.audit_log.push({ id: i + 1, camp_id: CAMP, actor: a[0], action: a[1], entity: a[2], entity_id: null, detail: a[3], at: created(i + 1) }); });
+    // Divisions in the first session (a camp names its own), with its campers spread across them by grade.
+    var s0 = db.sessions[0];
+    db.divisions = [['div-1', 'Juniors', 1], ['div-2', 'Seniors', 2]].map(function (d) { return { id: d[0], camp_id: CAMP, session_id: s0.id, name: d[1], sort: d[2] }; });
+    db.enrollments.forEach(function (e) {
+      if (e.session_id !== s0.id) return;
+      var c = db.campers.find(function (x) { return x.id === e.camper_id; }), g = parseInt(String(c && c.grade || '').replace(/\D/g, ''), 10);
+      e.division_id = !isNaN(g) && g >= 6 ? 'div-2' : 'div-1';
+    });
     sampleReports(db);
     sampleApplications(db);
     return db;
@@ -169,7 +177,8 @@
             legal_name: [c.legal_first, c.legal_last].filter(Boolean).join(' ') || null, campflow_camper_id: String(c.external_id || '').replace(/^(campflow:camper|test):?/, '') || null, alert: h ? h.alert : null,
             bunks: db.bunk_assignments.filter(function (a) { return a.camper_id === c.id; }).map(function (a) { var b = db.bunks.find(function (x) { return x.id === a.bunk_id; }); return b ? b.name : ''; }).filter(Boolean),
             missing_forms: db.requirements.filter(function (r) { return r.active && ['missing', 'rejected'].indexOf(statusFor(db, r, f, r.scope === 'camper' ? c.id : null)) >= 0; }).sort(function (a, b) { return a.sort - b.sort; }).map(function (r) { return r.label; }),
-            sessions: db.enrollments.filter(function (e) { return e.camper_id === c.id; }).map(function (e) { var s = db.sessions.find(function (x) { return x.id === e.session_id; }); return s ? s.name : ''; }) };
+            sessions: db.enrollments.filter(function (e) { return e.camper_id === c.id; }).map(function (e) { var s = db.sessions.find(function (x) { return x.id === e.session_id; }); return s ? s.name : ''; }),
+            divisions: db.enrollments.filter(function (e) { return e.camper_id === c.id && e.division_id; }).map(function (e) { var dv = (db.divisions || []).find(function (x) { return x.id === e.division_id; }); return dv ? dv.name : ''; }).filter(Boolean) };
         }) };
     }).sort(function (a, b) { return a.last_name.localeCompare(b.last_name) || a.parents.localeCompare(b.parents); });
     return { from: from, to: to, campers: kids.length, families: fams.length, new_families: fams.filter(function (f) { return f.created_at >= from; }).length, list: list };
@@ -342,7 +351,7 @@
   // ---------- A stand-in for supabase-js over the in-memory camp ----------
   var RELS = {
     campers: { families: ['one', 'families', 'family_id', 'id'], enrollments: ['many', 'enrollments', 'id', 'camper_id'], bunk_assignments: ['many', 'bunk_assignments', 'id', 'camper_id'], camper_health: ['one', 'camper_health', 'id', 'camper_id'] },
-    enrollments: { campers: ['one', 'campers', 'camper_id', 'id'], sessions: ['one', 'sessions', 'session_id', 'id'] },
+    enrollments: { campers: ['one', 'campers', 'camper_id', 'id'], sessions: ['one', 'sessions', 'session_id', 'id'], divisions: ['one', 'divisions', 'division_id', 'id'] },
     bunk_assignments: { bunks: ['one', 'bunks', 'bunk_id', 'id'], campers: ['one', 'campers', 'camper_id', 'id'] },
     finance_accounts: { families: ['one', 'families', 'family_id', 'id'] }
   };
@@ -439,7 +448,7 @@
     };
     function visible(table, row) {
       switch (table) {
-        case 'camps': case 'sessions': case 'requirements': case 'bunks': case 'roles': case 'perm_items': case 'permissions': return true;
+        case 'camps': case 'sessions': case 'divisions': case 'requirements': case 'bunks': case 'roles': case 'perm_items': case 'permissions': return true;
         case 'staff': return me.role === 'director';
         case 'families': return canFamily(row.id, 'parent_contacts', 'see');
         case 'campers': return canCamper(row.id, 'roster', 'see');
@@ -463,7 +472,7 @@
       switch (table) {
         case 'camps': case 'staff': case 'roles': case 'permissions': return me.role === 'director';
         case 'perm_items': return me.role === 'director' && (op !== 'insert' || row.kind === 'field');
-        case 'sessions': case 'requirements': case 'enrollments': return canAny('setup', 'change');
+        case 'sessions': case 'divisions': case 'requirements': case 'enrollments': return canAny('setup', 'change');
         case 'families': return canFamily(row.id, 'parent_contacts', 'change') || canFamily(row.id, 'form_status', 'change');
         case 'campers': return canCamper(row.id, 'roster', 'change');
         case 'bunks': var sc = scopeOf(); return permOk('bunks', 'change') && (sc === 'camp' || (sc === 'session' && (!me.session_id || me.session_id === row.session_id)));
@@ -629,7 +638,11 @@
           var id = 'cmp-online-' + ap.id + '-' + n;
           qs.filter(function (q) { return q.section === 'camper'; }).forEach(function (q) { var v = txt((k.custom || {})[q.id]); if (v && db.perm_items.some(function (i) { return i.key === 'f_reg_' + q.id; })) db.camper_fields.push({ camper_id: id, camp_id: CAMP, item_key: 'f_reg_' + q.id, value: v.slice(0, 500), updated_by: 'registration form' }); });
           db.campers.push({ id: id, camp_id: CAMP, family_id: fam, external_id: null, first_name: k.first, last_name: k.last || d.last_name || '', date_of_birth: k.dob || null, gender: k.gender || null, grade: k.grade || null, hebrew_name: k.hebrew_name || null, derived: false, active: true, created_at: now, updated_at: now });
-          (k.sessions || []).forEach(function (sid) { if (db.sessions.some(function (x) { return x.id === sid; })) db.enrollments.push({ camper_id: id, session_id: sid, camp_id: CAMP }); });
+          (k.sessions || []).forEach(function (sid) {
+            if (!db.sessions.some(function (x) { return x.id === sid; })) return;
+            var did = (k.divisions || {})[sid] || k.division, dv = (db.divisions || []).find(function (x) { return x.id === did && x.session_id === sid; });
+            db.enrollments.push({ camper_id: id, session_id: sid, camp_id: CAMP, division_id: dv ? dv.id : null });
+          });
         });
         Object.assign(ap, { status: 'accepted', family_id: fam, decided_by: email || 'you', decided_at: now });
         save();

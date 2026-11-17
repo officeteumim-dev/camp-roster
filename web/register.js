@@ -10,9 +10,10 @@
   var KIND = params.get('kind') === 'staff' ? 'staff' : 'camper';
   // A session's own link (?session=<name as a slug>): only that session is offered.
   var SESSION = params.get('session') || '';
+  var DIVISION = params.get('division') || '';   // a division's own link: session and division both fixed
   var slugOf = function (n) { return String(n || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''); };
   // This page's address (for sign-in links), without sign-in leftovers.
-  var selfUrl = function (extra) { return location.origin + '/register.html?camp=' + encodeURIComponent(slug) + (KIND === 'staff' ? '&kind=staff' : '') + (SESSION ? '&session=' + encodeURIComponent(SESSION) : '') + (extra || ''); };
+  var selfUrl = function (extra) { return location.origin + '/register.html?camp=' + encodeURIComponent(slug) + (KIND === 'staff' ? '&kind=staff' : '') + (SESSION ? '&session=' + encodeURIComponent(SESSION) : '') + (DIVISION ? '&division=' + encodeURIComponent(DIVISION) : '') + (extra || ''); };
   var STAFF = KIND === 'staff';
   var sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
   var S = { info: null, user: null, app: null, saving: null };
@@ -54,6 +55,11 @@
         if (!only) S.info.open = false;
         S.info.sessions = only ? [only] : [];
         S.info.sessionName = only ? only.name : '';
+        if (only && DIVISION) {
+          var dv = (only.divisions || []).find(function (x) { return slugOf(x.name) === DIVISION || x.id === DIVISION; });
+          if (!dv) { S.info.open = false; S.info.sessionName = ''; S.info.sessions = []; }
+          else { only.divisions = [dv]; S.info.division = dv; S.info.sessionName = only.name + ': ' + dv.name; }
+        }
       }
       document.getElementById('campName').textContent = S.info.name + (S.info.sessionName ? ' · ' + S.info.sessionName : '');
       document.title = (STAFF ? 'Work at ' : 'Apply to ') + S.info.name;
@@ -196,7 +202,12 @@
       sel('camper.gender', '<option value="Male"' + (k.gender === 'Male' ? ' selected' : '') + '>Boy</option><option value="Female"' + (k.gender === 'Female' ? ' selected' : '') + '>Girl</option>') +
       input('camper.hebrew_name', 'campers.' + n + '.hebrew_name', k.hebrew_name) + '</div>' +
       (sess.length && asks('camper.sessions') ? '<div class="field" style="font-weight:700">' + esc(F('camper.sessions').label) + (F('camper.sessions').mode === 'optional' ? ' <span class="small muted">(optional)</span>' : '') + '</div><div class="sessions" data-sessions="' + n + '">' + sess.map(function (x) {
-        return '<label class="check"><input type="checkbox" value="' + esc(x.id) + '"' + ((k.sessions || []).indexOf(x.id) >= 0 ? ' checked' : '') + '><span>' + esc(x.name) + (range(x) ? ' <span class="muted small">' + esc(range(x)) + '</span>' : '') + '</span></label>';
+        var divs = x.divisions || [], picked = (k.divisions || {})[x.id] || (S.info.division ? S.info.division.id : '');
+        return '<label class="check"><input type="checkbox" value="' + esc(x.id) + '"' + ((k.sessions || []).indexOf(x.id) >= 0 ? ' checked' : '') + '><span>' + esc(x.name) + (range(x) ? ' <span class="muted small">' + esc(range(x)) + '</span>' : '') + '</span></label>' +
+          // A session with divisions: choose one (fixed by a division's own link).
+          (divs.length && !S.info.division ? '<label class="field divpick"' + ((k.sessions || []).indexOf(x.id) >= 0 ? '' : ' hidden') + ' data-divfor="' + esc(x.id) + '">Division in ' + esc(x.name) + '<select data-division="' + n + ':' + esc(x.id) + '"><option value="">Choose…</option>' +
+            divs.map(function (d) { return '<option value="' + esc(d.id) + '"' + (picked === d.id ? ' selected' : '') + '>' + esc(d.name) + '</option>'; }).join('') + '</select></label>' : '') +
+          (S.info.division ? '<input type="hidden" data-division="' + n + ':' + esc(x.id) + '" value="' + esc(S.info.division.id) + '">' : '');
       }).join('') + '</div>' : '') + customs('camper', 'campers.' + n + '.custom.', k.custom) + '</div>';
   }
   function form(msg) {
@@ -231,7 +242,11 @@
     bindOut();
     var f = document.getElementById('appf');
     f.addEventListener('input', function () { save(); });
-    f.addEventListener('change', function () { save(); });
+    f.addEventListener('change', function (e) {
+      var box = e.target.closest && e.target.closest('[data-sessions]');
+      if (box && e.target.type === 'checkbox') { var pick = box.querySelector('[data-divfor="' + e.target.value + '"]'); if (pick) pick.hidden = !e.target.checked; }
+      save();
+    });
     document.getElementById('addkid').onclick = function () { var d2 = collect(); d2.campers.push(blankKid()); S.app = Object.assign(S.app || {}, { data: d2 }); form(); save(); var k = $app.querySelectorAll('.kid'); k[k.length - 1].scrollIntoView(); };
     [].forEach.call($app.querySelectorAll('[data-remove]'), function (b) {
       b.onclick = function () { var d2 = collect(); d2.campers.splice(+b.dataset.remove, 1); S.app = Object.assign(S.app || {}, { data: d2 }); form(); save(); };
@@ -250,7 +265,10 @@
     [].forEach.call($app.querySelectorAll('.kid'), function (el) { var n = +el.dataset.kid; d.campers[n] = d.campers[n] || {}; d.campers[n].custom = d.campers[n].custom || {}; });
     [].forEach.call($app.querySelectorAll('[data-sessions]'), function (box) {
       var n = +box.dataset.sessions; d.campers[n] = d.campers[n] || {};
-      d.campers[n].sessions = [].filter.call(box.querySelectorAll('input'), function (x) { return x.checked; }).map(function (x) { return x.value; });
+      d.campers[n].sessions = [].filter.call(box.querySelectorAll('input[type=checkbox]'), function (x) { return x.checked; }).map(function (x) { return x.value; });
+      var dv = {};
+      [].forEach.call(box.querySelectorAll('[data-division]'), function (sel) { var sid = sel.dataset.division.split(':')[1]; if (sel.value && d.campers[n].sessions.indexOf(sid) >= 0) dv[sid] = sel.value; });
+      d.campers[n].divisions = dv;
     });
     [].forEach.call($app.querySelectorAll('[data-none]'), function (x) { d[x.dataset.none] = x.checked; });
     var pick = $app.querySelector('[data-plan] input:checked');
@@ -308,6 +326,12 @@
     }
     ['father', 'mother'].forEach(function (w) { if (d[w].email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(d[w].email)) { out.push('a valid ' + w + '\'s email'); mark($app.querySelector('[data-k="' + w + '.email"]')); } });
     if (S.info.sessions.length && asks('camper.sessions') && F('camper.sessions').mode === 'required') d.campers.forEach(function (k, n) { if (!(k.sessions || []).length) out.push('camper ' + (n + 1) + '\'s sessions'); });
+    d.campers.forEach(function (k, n) {
+      (k.sessions || []).forEach(function (sid) {
+        var x = S.info.sessions.find(function (q) { return q.id === sid; });
+        if (x && (x.divisions || []).length && !(k.divisions || {})[sid]) { out.push('camper ' + (n + 1) + '\'s division in ' + x.name); var sel = $app.querySelector('[data-division="' + n + ':' + sid + '"]'); if (sel) mark(sel); }
+      });
+    });
     if (plans().length && !d.payment_plan) out.push('a payment plan');
     if (!document.getElementById('agree').checked) out.push('the agreement checkbox');
     if (!document.getElementById('sig').value.trim()) { out.push('your signature'); mark(document.getElementById('sig')); }
@@ -580,6 +604,7 @@
       withdrawn: ['Application withdrawn', '']
     }[a.status] || ['Application', ''];
     var sess = {}; i.sessions.forEach(function (x) { sess[x.id] = x.name; });
+    var divName = function (sid, did) { var x = i.sessions.find(function (q) { return q.id === sid; }), dv = x && (x.divisions || []).find(function (q) { return q.id === did; }); return dv ? dv.name : ''; };
     var plan = plans().find(function (p) { return p.id === d.payment_plan; });
     var payNow = plan && (a.status === 'accepted' || (pay.show === 'after_send' && (a.status === 'submitted' || a.status === 'waitlisted')));
     show('<h1>' + esc(i.name) + '</h1><div class="status"><h2 style="margin:0 0 6px">' + head[0] + '</h2><p style="margin:0">' + head[1] + '</p></div>' +
@@ -588,7 +613,7 @@
       '<h2 style="margin-top:26px">Your application</h2><dl class="sum">' +
       '<dt>Family</dt><dd>' + esc(d.last_name) + (d.address ? ', ' + esc([d.address, d.city, d.state, d.zip].filter(Boolean).join(', ')) : '') + '</dd>' +
       ['father', 'mother'].filter(function (w) { return d[w] && d[w].first; }).map(function (w) { return '<dt>' + (w === 'father' ? 'Father' : 'Mother') + '</dt><dd>' + esc([d[w].first, d[w].phone, d[w].email].filter(Boolean).join(' · ')) + '</dd>'; }).join('') +
-      '<dt>Campers</dt>' + (d.campers || []).map(function (k) { return '<dd>' + esc(k.first + ' ' + (k.last || d.last_name || '')) + (k.grade ? ', ' + esc(k.grade) : '') + ((k.sessions || []).length ? ' · ' + esc(k.sessions.map(function (x) { return sess[x] || ''; }).filter(Boolean).join(' & ')) : '') + '</dd>'; }).join('') +
+      '<dt>Campers</dt>' + (d.campers || []).map(function (k) { return '<dd>' + esc(k.first + ' ' + (k.last || d.last_name || '')) + (k.grade ? ', ' + esc(k.grade) : '') + ((k.sessions || []).length ? ' · ' + esc(k.sessions.map(function (x) { return (sess[x] || '') + (divName(x, (k.divisions || {})[x]) ? ' (' + divName(x, k.divisions[x]) + ')' : ''); }).filter(Boolean).join(' & ')) : '') + '</dd>'; }).join('') +
       (plan ? '<dt>Payment plan</dt><dd>' + esc(plan.name) + '</dd>' : '') +
       '<dt>Sent</dt><dd>' + esc(a.submitted_at ? new Date(a.submitted_at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : '') + ' · signed by ' + esc(a.signature || '') + '</dd></dl>' +
       (i.contact ? '<p>Need to change something? Email <a href="mailto:' + esc(i.contact) + '">' + esc(i.contact) + '</a>.</p>' : '') +

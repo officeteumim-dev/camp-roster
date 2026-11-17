@@ -244,9 +244,10 @@
       DB.from('sessions').select('*').eq('camp_id', id).order('starts_on', { nullsFirst: false }).order('name'),
       DB.rpc('my_permissions', { p_camp: id }),
       DB.from('roles').select('*').eq('camp_id', id).order('sort'),
-      DB.from('perm_items').select('*').eq('camp_id', id).order('sort')
+      DB.from('perm_items').select('*').eq('camp_id', id).order('sort'),
+      DB.from('divisions').select('*').eq('camp_id', id).order('sort').order('name')
     ]).then(function (r) {
-      S.camp = must(r[0]); S.reqs = must(r[1]); S.sessions = must(r[2]);
+      S.camp = must(r[0]); S.reqs = must(r[1]); S.sessions = must(r[2]); S.divisions = (r[6] && r[6].data) || [];
       S.perms = must(r[3]) || { director: false, items: {}, roles: [] };
       S.roleList = must(r[4]); S.items = must(r[5]);
       S.myBunks = S.perms.roles.filter(function (x) { return x.scope === 'bunk' && x.bunk_id; }).map(function (x) { return x.bunk_id; });
@@ -398,6 +399,7 @@
     ['dob', 'Date of birth', function (r) { return r.date_of_birth; }],
     ['gender', 'Gender', function (r) { return r.gender; }],
     ['sessions', 'Sessions', function (r) { return r.sessions.join(', '); }],
+    ['division', 'Division', function (r) { return (r.divisions || []).join(', '); }],
     ['bunks', 'Bunk', function (r) { return r.bunks.join(', '); }],
     ['alert', 'Medical alert', function (r) { return r.alert; }],
     ['forms', 'Forms missing', function (r) { return r.missing; }, 'num'],
@@ -416,14 +418,14 @@
     ['camperid', 'Camp Flow camper ID', function (r) { return (r.external_id || '').replace(/^campflow:camper:/, ''); }, 'num'],
     ['familyid', 'Camp Flow family ID', function (r) { return r.f ? r.f.external_id.replace(/^campflow:/, '') : ''; }, 'num']
   ];
-  var ROSTER_DEFAULT = ['last', 'first', 'grade', 'age', 'sessions', 'bunks', 'alert', 'father', 'fphone', 'mother', 'mphone'];
+  var ROSTER_DEFAULT = ['last', 'first', 'grade', 'age', 'sessions', 'division', 'bunks', 'alert', 'father', 'fphone', 'mother', 'mphone'];
   var gradeRank = function (g) { var m = String(g || '').match(/\d+/); if (m) return +m[0]; return /^k/i.test(g || '') ? 0 : /pre/i.test(g || '') ? -1 : 99; };
 
   function loadRoster(force) {
     if (S.roster && !force) return Promise.resolve(S.roster);
     var sel = 'id, external_id, first_name, last_name, legal_first, legal_last, hebrew_name, date_of_birth, gender, grade, staff_child, family_id, ' +
       'families(external_id, last_name, father_first, mother_first, father_phone, mother_phone, father_email, mother_email, address, city, state, zip, emergency_contacts), ' +
-      'enrollments(sessions(name)), bunk_assignments(bunks(name))';
+      'enrollments(sessions(name), divisions(name)), bunk_assignments(bunks(name))';
     var paged = function (q) {
       var out = [];
       var page = function (n) { return q().range(n * 1000, n * 1000 + 999).then(function (r) { var rows = must(r); out = out.concat(rows); return rows.length === 1000 ? page(n + 1) : out; }); };
@@ -442,6 +444,7 @@
         if (dob) { age = today.getFullYear() - dob.getFullYear(); if (today.getMonth() < dob.getMonth() || (today.getMonth() === dob.getMonth() && today.getDate() < dob.getDate())) age--; }
         return Object.assign({}, c, { f: c.families, age: age, fields: fv[c.id] || {},
           sessions: (c.enrollments || []).map(function (e) { return e.sessions && e.sessions.name; }).filter(Boolean),
+          divisions: (c.enrollments || []).map(function (e) { return e.divisions && e.divisions.name; }).filter(Boolean),
           bunks: (c.bunk_assignments || []).map(function (b) { return b.bunks && b.bunks.name; }).filter(Boolean),
           alert: al[c.id] || '', missing: c.id in miss ? miss[c.id] : '' });
       });
@@ -1186,11 +1189,15 @@
   function regLinks(kind, reg) {
     var offered = S.sessions.filter(function (x) { return !reg.sessions || reg.sessions.indexOf(x.id) >= 0; });
     var line = function (label, url) { return '<div class="reglink"><span class="small"><strong>' + esc(label) + '</strong></span><code>' + esc(url) + '</code><button type="button" data-copy="' + esc(url) + '">Copy</button></div>'; };
-    return offered.map(function (x) { return line(x.name, regLink(kind, x)); }).join('') + (offered.length > 1 ? line('Any of these sessions', regLink(kind)) : offered.length ? '' : line('Apply', regLink(kind)));
+    return offered.map(function (x) {
+      var divs = kind === 'staff' ? [] : (S.divisions || []).filter(function (d) { return d.session_id === x.id; });
+      return line(x.name + (divs.length ? ' (parents choose a division)' : ''), regLink(kind, x)) + divs.map(function (d) { return line(x.name + ': ' + d.name, regLink(kind, x) + '&division=' + slugOf(d.name)); }).join('');
+    }).join('') + (offered.length > 1 ? line('Any of these sessions', regLink(kind)) : offered.length ? '' : line('Apply', regLink(kind)));
   }
   function kidLine(k, d) {
     var sname = function (id) { var x = S.sessions.find(function (q) { return q.id === id; }); return x ? x.name : ''; };
-    return esc(k.first + ' ' + (k.last || d.last_name || '')) + (k.grade ? ' <span class="muted">' + esc(k.grade) + '</span>' : '') + ((k.sessions || []).length ? ' <span class="small muted">· ' + esc(k.sessions.map(sname).filter(Boolean).join(' & ')) + '</span>' : '');
+    var dname = function (sid) { var did = (k.divisions || {})[sid] || k.division, x = (S.divisions || []).find(function (q) { return q.id === did && q.session_id === sid; }); return x ? ' (' + x.name + ')' : ''; };
+    return esc(k.first + ' ' + (k.last || d.last_name || '')) + (k.grade ? ' <span class="muted">' + esc(k.grade) + '</span>' : '') + ((k.sessions || []).length ? ' <span class="small muted">· ' + esc(k.sessions.map(function (x) { return sname(x) + dname(x); }).filter(Boolean).join(' & ')) + '</span>' : '');
   }
   function applicationsPage() {
     var tab = S.appTab || 'submitted', kind = S.appKind || 'camper', staff = kind === 'staff';
@@ -1463,6 +1470,7 @@
     ['first', 'First name', function (c) { return c.first_name || String(c.name || '').split(' ')[0]; }],
     ['grade', 'Grade', function (c) { return c.grade; }],
     ['sessions', 'Sessions', function (c) { return (c.sessions || []).join(' & '); }],
+    ['division', 'Division', function (c) { return (c.divisions || []).join(' & '); }],
     ['parents', 'Parents', function (c, f) { return f.parents; }],
     ['city', 'City', function (c, f) { return [f.city, f.state].filter(Boolean).join(', '); }],
     ['applied', 'Applied', function (c, f) { return f.applied_at ? new Date(f.applied_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''; }],
@@ -1618,8 +1626,12 @@
       html += '<div class="card"><h2 style="margin-top:0">Sessions</h2><p class="small muted">Start dates are used for the SFSP age rule (campers 19 or older on the first day don\'t need the meal form) and are shared with the SFSP app.</p>' +
         // Each session: its name, then start and end dates side by side; in date order.
         S.sessions.slice().sort(function (a, b) { return String(a.starts_on || '9999').localeCompare(String(b.starts_on || '9999')) || a.name.localeCompare(b.name); }).map(function (s) {
+          var divs = (S.divisions || []).filter(function (d) { return d.session_id === s.id; });
           return '<div class="sessrow"><div class="sessname">' + esc(s.name) + '</div><div class="sessdates"><label class="field">Starts<input type="date" data-sstart="' + s.id + '" value="' + esc(s.starts_on || '') + '"></label>' +
-            '<label class="field">Ends<input type="date" data-send="' + s.id + '" value="' + esc(s.ends_on || '') + '"></label></div></div>';
+            '<label class="field">Ends<input type="date" data-send="' + s.id + '" value="' + esc(s.ends_on || '') + '"></label></div>' +
+            '<div class="divs"><div class="small muted">Divisions' + (divs.length ? '' : ' <span class="small">(none: add one if this session has divisions)</span>') + '</div>' +
+            divs.map(function (d) { return '<div class="divrow"><input type="text" data-divname="' + d.id + '" value="' + esc(d.name) + '" maxlength="80" aria-label="Division name"><button type="button" data-divdel="' + d.id + '" aria-label="Remove ' + esc(d.name) + '">Remove</button></div>'; }).join('') +
+            '<form class="divrow" data-divadd="' + s.id + '"><input type="text" placeholder="New division name" maxlength="80" aria-label="New division in ' + esc(s.name) + '"><button>Add</button></form></div></div>';
         }).join('') +
         '<form id="sessf" class="row" style="margin-top:10px"><input type="text" id="sesn" placeholder="New session name" aria-label="Session name" style="flex:1"><button>Add</button></form>' +
         '<label class="field" style="margin-top:14px">Camp Flow registrations are for<select id="cfsess"><option value="">(not set)</option>' + S.sessions.map(function (x) { return '<option value="' + x.id + '"' + (st.campflow_session === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select></label>' +
@@ -1641,6 +1653,28 @@
           .then(must).then(function () { toast('Added. They can sign in now.'); settingsPage(); }).catch(fail);
       };
       [].forEach.call($main.querySelectorAll('[data-rm]'), function (b) { b.onclick = function () { if (confirm('Remove this access?')) DB.from('staff').delete().eq('id', b.dataset.rm).then(must).then(settingsPage).catch(fail); }; });
+      // Divisions: add, rename, remove.
+      [].forEach.call($main.querySelectorAll('[data-divadd]'), function (f) {
+        f.onsubmit = function (e) {
+          e.preventDefault(); var n = f.querySelector('input').value.trim(); if (!n) return;
+          var sort = (S.divisions || []).filter(function (d) { return d.session_id === f.dataset.divadd; }).length + 1;
+          DB.from('divisions').insert({ camp_id: S.camp.id, session_id: f.dataset.divadd, name: n, sort: sort }).select().single().then(must).then(function (row) { S.divisions.push(row); S.openCards.settings.Sessions = true; settingsPage(); })
+            .catch(function (er) { fail(/duplicate|unique/.test(er.message) ? said('That session already has a division called ' + n + '.') : er); });
+        };
+      });
+      [].forEach.call($main.querySelectorAll('[data-divname]'), function (inp) {
+        inp.onchange = function () {
+          var n = inp.value.trim(), d = S.divisions.find(function (x) { return x.id === inp.dataset.divname; }); if (!n) { inp.value = d.name; return; }
+          DB.from('divisions').update({ name: n }).eq('id', d.id).then(must).then(function () { d.name = n; S.roster = null; toast('Renamed. Its registration link changes to match the new name.'); }).catch(fail);
+        };
+      });
+      [].forEach.call($main.querySelectorAll('[data-divdel]'), function (b) {
+        b.onclick = function () {
+          var d = S.divisions.find(function (x) { return x.id === b.dataset.divdel; });
+          if (!confirm('Remove the division ' + d.name + '? Campers in it stay in the session, without a division, and its registration link stops working.')) return;
+          DB.from('divisions').delete().eq('id', d.id).then(must).then(function () { S.divisions = S.divisions.filter(function (x) { return x.id !== d.id; }); S.roster = null; settingsPage(); }).catch(fail);
+        };
+      });
       document.getElementById('cfsess').onchange = function (e) {
         var s2 = Object.assign({}, S.camp.settings, { campflow_session: e.target.value || null });
         DB.from('camps').update({ settings: s2 }).eq('id', S.camp.id).then(must).then(function () {

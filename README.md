@@ -40,6 +40,8 @@ Parents apply at `/register.html?camp=<slug>`: they sign in (Google pop-up or em
 
 **Applications → Set up online registration** (anyone with Applications "change"): on/off, open and close dates, review on/off, which sessions, the questions (rename, required / optional / not asked, and the camp's own questions for the family, parents, emergency contacts, each camper or "anything else"), payment plans (name, description, a link to the camp's own payment page; the "Pay now" link shows after sending or after acceptance) and the welcome and agreement text. The standard questions are listed in `web/reg-form.js`. Camper questions become camper details (`f_reg_<id>`: on the Roster, in reports, in Who can see what); family answers, the payment plan and notes are kept in the family's `disclosures`.
 
+Each session offered online has its own link (`&session=<name as a slug>`, only that session); a session with **divisions** (Settings → Sessions; `divisions`, and `enrollments.division_id`) asks parents to choose one, and each division has its own link too (`&session=…&division=<name as a slug>`), which fixes both. Division is a Roster column and a daily report column. Settings → Sessions → "Camp Flow registrations are for" puts Camp Flow campers with no session into that session (`assign_campflow_session`, also run after each import).
+
 The Camp Flow import only looks at `campflow:` families, so online families (`online:<application id>`) are never flagged as gone.
 
 ## Staff applications, staff roster and tax forms

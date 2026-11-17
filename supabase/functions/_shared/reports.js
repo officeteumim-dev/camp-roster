@@ -47,6 +47,7 @@ export const REPORT_COLUMNS = [
   ['first', 'First name', (c) => c.first_name || String(c.name || '').split(' ')[0]],
   ['grade', 'Grade', (c) => c.grade],
   ['sessions', 'Sessions', (c) => (c.sessions || []).join(' & ')],
+  ['division', 'Division', (c) => (c.divisions || []).join(' & ')],
   ['parents', 'Parents', (c, f) => f.parents],
   ['city', 'City', (c, f) => [f.city, f.state].filter(Boolean).join(', ')],
   ['applied', 'Applied', (c, f, tz) => f.applied_at ? new Date(f.applied_at).toLocaleDateString('en-US', { timeZone: tz, month: 'short', day: 'numeric' }) : ''],

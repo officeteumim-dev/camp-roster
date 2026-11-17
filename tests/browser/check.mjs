@@ -271,6 +271,23 @@ await so.context().close();
   if (!/Teumim Tammuz/.test(await r.locator('h1').innerText())) errors.push('session link heading');
   const boxes = await r.locator('[data-sessions="0"] input').evaluateAll(x => x.map(i => i.value + ':' + i.checked));
   if (boxes.join() !== 's1:true') errors.push('session link should offer only its session, ticked: ' + boxes.join());
+  // Tammuz with divisions: its own link asks which division; a division's link fixes it.
+  await r.context().close();
+  P2.rpc.registration_info.sessions[0].divisions = [{ id: 'd1', name: 'Bochurim' }, { id: 'd2', name: 'Mesivta Juniors' }];
+  r = await newPage(390, P2);
+  await r.goto('http://app.test/register.html?camp=teumim&session=teumim-tammuz'); await r.waitForTimeout(400);
+  if (!(await r.locator('[data-division="0:s1"]').isVisible())) errors.push('division question not shown');
+  await r.locator('#sendapp').click(); await r.waitForTimeout(200);
+  if (!/division in Teumim Tammuz/.test(await r.locator('.formerr').innerText().catch(() => ''))) errors.push('division not required');
+  await r.locator('[data-division="0:s1"]').selectOption('d2'); await r.waitForTimeout(1200);
+  const dw = await r.evaluate(() => window.FAKE.writes.filter(x => x.table === 'applications' && x.value.data).pop());
+  if (!dw || dw.value.data.campers[0].divisions.s1 !== 'd2') errors.push('division choice not saved: ' + JSON.stringify(dw && dw.value.data.campers));
+  await r.goto('http://app.test/register.html?camp=teumim&session=teumim-tammuz&division=mesivta-juniors'); await r.waitForTimeout(400);
+  if (!/Teumim Tammuz: Mesivta Juniors/.test(await r.locator('h1').innerText())) errors.push('division link heading: ' + await r.locator('h1').innerText());
+  if (await r.locator('select[data-division]').count()) errors.push('division link should not ask the division');
+  if ((await r.locator('input[type=hidden][data-division="0:s1"]').getAttribute('value')) !== 'd2') errors.push('division link does not set the division');
+  await r.goto('http://app.test/register.html?camp=teumim&session=teumim-tammuz&division=nope'); await r.waitForTimeout(400);
+  if (!/isn't open/.test(await r.locator('main').innerText())) errors.push('unknown division link not closed');
   await r.goto('http://app.test/register.html?camp=teumim&session=nope'); await r.waitForTimeout(400);
   if (!/isn't open/.test(await r.locator('main').innerText())) errors.push('unknown session link not closed');
   await r.context().close();
@@ -385,6 +402,18 @@ await demo.goto('http://app.test/#settings'); await demo.waitForTimeout(400);
 if (await demo.locator('#se').isVisible() || !(await demo.locator('.foldhead').count())) errors.push('settings cards should start closed');
 await demo.screenshot({ path: path.join(out, 'demo-settings-closed.png'), fullPage: true });
 { const closed = demo.locator('.foldhead[aria-expanded=\"false\"]'); for (let n = await closed.count(); n > 0; n--) await closed.first().click(); }
+// Divisions: add one to a session in Settings; the Roster shows divisions.
+{
+  const add = demo.locator('form[data-divadd]').nth(1);
+  await add.locator('input').fill('Advanced'); await add.locator('button').click(); await demo.waitForTimeout(500);
+  if (!(await demo.locator('[data-divname]').evaluateAll(x => x.map(i => i.value))).includes('Advanced')) errors.push('division not added');
+  await demo.locator('.card', { hasText: 'Camp Flow registrations are for' }).screenshot({ path: path.join(out, 'demo-divisions.png') });
+  await demo.goto('http://app.test/#roster'); await demo.waitForTimeout(600);
+  const rt = await demo.locator('main').innerText();
+  if (!/Division/i.test(rt) || !/Juniors/.test(rt) || !/Seniors/.test(rt)) errors.push('roster has no divisions');
+  await demo.goto('http://app.test/#settings'); await demo.waitForTimeout(400);
+  { const closed = demo.locator('.foldhead[aria-expanded="false"]'); for (let n = await closed.count(); n > 0; n--) await closed.first().click(); }
+}
 await demo.locator('#se').fill('trial@example.com'); await demo.locator('#addstaff button.primary').click(); await demo.waitForTimeout(200);
 let staffText = await demo.locator('main').innerText();
 if (!/trial@example.com/.test(staffText)) errors.push('test camp: adding staff did not show');

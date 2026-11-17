@@ -712,4 +712,45 @@ do $$ declare n int; begin
 end $$;
 rollback;
 
+
+-- ---------- Divisions ----------
+begin;
+do $$ begin perform pg_temp.as_user('coun@x.org'); end $$;
+do $$ begin
+  begin insert into divisions (camp_id, session_id, name) values ('00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-0000000000e1', 'X'); raise exception 'counselor added a division';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+do $$ begin perform pg_temp.as_user('dir@x.org'); end $$;
+insert into divisions (id, camp_id, session_id, name, sort) values
+  ('00000000-0000-0000-0000-0000000000d1', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-0000000000e1', 'Bochurim', 1),
+  ('00000000-0000-0000-0000-0000000000d2', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-0000000000e1', 'Juniors', 2);
+do $$ begin
+  begin insert into divisions (camp_id, session_id, name) values ('00000000-0000-0000-0000-0000000000c2', '00000000-0000-0000-0000-0000000000e1', 'Wrong camp'); raise exception 'cross-camp division';
+  exception when raise_exception or insufficient_privilege then if sqlerrm = 'cross-camp division' then raise; end if; end;
+end $$;
+select set_registration('00000000-0000-0000-0000-0000000000c1', 'camper', '{"enabled":true}');
+reset role;
+set local role anon;
+do $$ begin assert registration_info('camp-one') #>> '{sessions,0,divisions,1,name}' = 'Juniors', 'divisions listed for the public page, in order'; end $$;
+reset role;
+do $$ begin perform pg_temp.as_parent('div@x.org', '00000000-0000-0000-0000-00000000aaa7'); end $$;
+do $$ begin
+  insert into applications (camp_id, data, signature) values ('00000000-0000-0000-0000-0000000000c1',
+    '{"last_name":"Div","father":{"first":"A","email":"div@x.org"},"campers":[{"first":"Kid","sessions":["00000000-0000-0000-0000-0000000000e1"],"division":"00000000-0000-0000-0000-0000000000d2"}]}', 'A Div');
+  update applications set status = 'submitted';
+end $$;
+reset role;
+do $$ begin perform pg_temp.as_user('dir@x.org'); end $$;
+do $$ declare fam uuid; begin
+  fam := accept_application((select id from applications where email = 'div@x.org'));
+  assert (select e.division_id from enrollments e join campers c on c.id = e.camper_id where c.family_id = fam) = '00000000-0000-0000-0000-0000000000d2', 'camper placed in the division';
+  begin update enrollments set division_id = '00000000-0000-0000-0000-0000000000d1', session_id = '00000000-0000-0000-0000-0000000000e2' where camper_id in (select id from campers where family_id = fam);
+    raise exception 'division outside its session'; exception when raise_exception then if sqlerrm = 'division outside its session' then raise; end if; end;
+end $$;
+reset role;
+set local role service_role;
+do $$ begin assert registration_report('00000000-0000-0000-0000-0000000000c1', now() - interval '1 hour', now() + interval '1 hour') -> 'list' @> '[{"campers":[{"divisions":["Juniors"]}]}]', 'division in the report'; end $$;
+rollback;
+
 \echo 'ALL DATABASE TESTS PASSED'
