@@ -1180,7 +1180,14 @@
       var n = (r.data || []).length; if (n !== S.appsWaiting) { S.appsWaiting = n; drawTop(); }
     });
   }
-  function regLink(kind) { return location.origin + '/register.html?camp=' + encodeURIComponent(S.camp.slug) + (kind === 'staff' ? '&kind=staff' : ''); }
+  var slugOf = function (n) { return String(n || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''); };
+  function regLink(kind, session) { return location.origin + '/register.html?camp=' + encodeURIComponent(S.camp.slug) + (kind === 'staff' ? '&kind=staff' : '') + (session ? '&session=' + slugOf(session.name) : ''); }
+  // The registration links to send out: one for each session offered online, and one for all of them.
+  function regLinks(kind, reg) {
+    var offered = S.sessions.filter(function (x) { return !reg.sessions || reg.sessions.indexOf(x.id) >= 0; });
+    var line = function (label, url) { return '<div class="reglink"><span class="small"><strong>' + esc(label) + '</strong></span><code>' + esc(url) + '</code><button type="button" data-copy="' + esc(url) + '">Copy</button></div>'; };
+    return offered.map(function (x) { return line(x.name, regLink(kind, x)); }).join('') + (offered.length > 1 ? line('Any of these sessions', regLink(kind)) : offered.length ? '' : line('Apply', regLink(kind)));
+  }
   function kidLine(k, d) {
     var sname = function (id) { var x = S.sessions.find(function (q) { return q.id === id; }); return x ? x.name : ''; };
     return esc(k.first + ' ' + (k.last || d.last_name || '')) + (k.grade ? ' <span class="muted">' + esc(k.grade) + '</span>' : '') + ((k.sessions || []).length ? ' <span class="small muted">· ' + esc(k.sessions.map(sname).filter(Boolean).join(' & ')) + '</span>' : '');
@@ -1201,19 +1208,19 @@
       var head = staff ? '<th>Name</th><th>Positions wanted</th><th>School</th><th>Email</th>' : '<th>Family</th><th>Campers</th><th>Parent email</th>';
       $main.innerHTML = '<h1>Applications</h1>' + kinds + '<div class="card"><p style="margin-top:0">' + openTxt + '</p>' +
         (reg.enabled && S.demo ? '<p class="small muted">In ' + DEMO.NAME + ' these are sample applications; in your own camp people apply on your registration page.</p>' : '') +
-        (reg.enabled && !S.demo ? '<p class="small">Apply at <a href="' + esc(regLink(kind)) + '" target="_blank" rel="noopener">' + esc(regLink(kind)) + '</a> <button id="copyreg">Copy link</button></p>' : '') +
+        (reg.enabled && !S.demo ? '<p class="small" style="margin-bottom:4px">Links to send out:</p>' + regLinks(kind, reg) : '') +
         (can('applications', 'change') ? '<a class="btn" href="#applications/' + (staff ? 'setup-staff' : 'setup') + '">Set up ' + (staff ? 'staff applications' : 'online registration') + '</a>' : '') + '</div>' +
         '<div class="row noprint" style="flex-wrap:wrap;margin:14px 0">' + tabs + '</div>' +
         (list.length ? '<div class="scroll"><table class="grid"><thead><tr>' + head + '<th>' + (tab === 'draft' ? 'Last saved' : 'Sent') + '</th></tr></thead><tbody>' + list.map(function (a) {
           var d = a.data || {};
           if (staff) return '<tr><td><a href="#applications/' + a.id + '"><strong>' + esc([d.first, d.last].filter(Boolean).join(' ') || '(no name yet)') + '</strong></a>' + (d.grade ? '<div class="small muted">' + esc(d.grade) + '</div>' : '') + '</td><td>' + esc((d.positions || []).join(', ')) + '</td><td class="small">' + esc(d.school || '') + '</td><td class="small">' + esc(a.email) + '</td><td class="small">' + esc(when(a.submitted_at || a.updated_at)) + '</td></tr>';
-          return '<tr><td><a href="#applications/' + a.id + '"><strong>' + esc(d.last_name || '(no name yet)') + '</strong></a>' + (d.father && d.father.first || d.mother && d.mother.first ? '<div class="small muted">' + esc([d.father && d.father.first, d.mother && d.mother.first].filter(Boolean).join(' & ')) + '</div>' : '') + '</td>' +
+          return '<tr><td><a href="#applications/' + a.id + '"><strong>' + esc(d.last_name || '(no name yet)') + '</strong></a>' + (d.applied_for_name ? ' <span class="chip none">' + esc(d.applied_for_name) + '</span>' : '') + (d.father && d.father.first || d.mother && d.mother.first ? '<div class="small muted">' + esc([d.father && d.father.first, d.mother && d.mother.first].filter(Boolean).join(' & ')) + '</div>' : '') + '</td>' +
             '<td>' + (d.campers || []).map(function (k) { return '<div>' + kidLine(k, d) + '</div>'; }).join('') + '</td><td class="small">' + esc(a.email) + '</td><td class="small">' + esc(when(a.submitted_at || a.updated_at)) + '</td></tr>';
         }).join('') + '</tbody></table></div>' : '<p class="muted">' + { submitted: 'No applications waiting for review.', waitlisted: 'Nobody on the waiting list.', accepted: staff ? 'Nobody hired yet.' : 'No accepted applications yet.', declined: 'No declined applications.', draft: 'No applications in progress.' }[tab] + '</p>') +
         (tab === 'draft' && list.length ? '<p class="small muted">Started but not sent yet. They can\'t be ' + (staff ? 'hired' : 'accepted') + ' until they\'re sent.</p>' : '');
       [].forEach.call($main.querySelectorAll('[data-tab]'), function (b) { b.onclick = function () { S.appTab = b.dataset.tab; applicationsPage(); }; });
       [].forEach.call($main.querySelectorAll('[data-kind]'), function (b) { b.onclick = function () { S.appKind = b.dataset.kind; applicationsPage(); }; });
-      var cp = document.getElementById('copyreg'); if (cp) cp.onclick = function () { navigator.clipboard.writeText(regLink(kind)).then(function () { toast('Link copied'); }); };
+      [].forEach.call($main.querySelectorAll('[data-copy]'), function (b) { b.onclick = function () { navigator.clipboard.writeText(b.dataset.copy).then(function () { toast('Link copied'); }, function () { prompt('Copy this link:', b.dataset.copy); }); }; });
     }).catch(fail);
   }
   function applicationPage(id) {
@@ -1543,6 +1550,27 @@
   }
 
   // ---------- Settings (director) ----------
+
+  // Cards with a heading open and close by tapping the heading; closed to start with. Which are open is remembered.
+  function foldCards(page) {
+    S.openCards = S.openCards || {};
+    var open = S.openCards[page] = S.openCards[page] || {};
+    [].forEach.call($main.querySelectorAll('.card'), function (card) {
+      var h = card.querySelector(':scope > h2:first-child');
+      if (!h) return;
+      var title = h.textContent.trim();
+      var body = document.createElement('div'); body.className = 'foldbody';
+      while (h.nextSibling) body.appendChild(h.nextSibling);
+      card.appendChild(body);
+      var btn = document.createElement('button'); btn.type = 'button'; btn.className = 'foldhead';
+      btn.innerHTML = '<span>' + esc(title) + '</span><span class="chev" aria-hidden="true">' + svg('<path d="m6 9 6 6 6-6"/>') + '</span>';
+      h.textContent = ''; h.appendChild(btn); h.style.margin = '0';
+      var set = function (on) { card.classList.toggle('open', on); btn.setAttribute('aria-expanded', on ? 'true' : 'false'); body.hidden = !on; };
+      set(!!open[title]);
+      btn.onclick = function () { open[title] = !card.classList.contains('open'); set(open[title]); };
+    });
+  }
+
   function settingsPage() {
     $main.innerHTML = '<p class="muted">Loading…</p>';
     Promise.all([
@@ -1588,10 +1616,17 @@
         '<label class="field">Shared secret ' + (conn.has_secret ? '<span class="chip good">saved</span>' : '<span class="chip warn">not set</span>') + '<input type="password" id="sk" autocomplete="off" placeholder="' + (conn.has_secret ? 'Leave blank to keep the saved one' : 'Paste from the SFSP app') + '"></label><button class="primary">Save</button>' +
         (conn.last_message ? '<p class="small muted">Last message from the SFSP app: ' + esc(when(conn.last_message)) + '</p>' : '') + '</form></div>';
       html += '<div class="card"><h2 style="margin-top:0">Sessions</h2><p class="small muted">Start dates are used for the SFSP age rule (campers 19 or older on the first day don\'t need the meal form) and are shared with the SFSP app.</p>' +
-        S.sessions.map(function (s) { return '<div class="row" style="margin:6px 0"><strong style="flex:1;min-width:140px">' + esc(s.name) + '</strong><label class="small">Starts <input type="date" data-sstart="' + s.id + '" value="' + esc(s.starts_on || '') + '" style="width:auto"></label><label class="small">Ends <input type="date" data-send="' + s.id + '" value="' + esc(s.ends_on || '') + '" style="width:auto"></label></div>'; }).join('') +
-        '<form id="sessf" class="row" style="margin-top:10px"><input type="text" id="sesn" placeholder="Session name (as in Camp Flow)" aria-label="Session name" style="flex:1"><button>Add</button></form></div>';
+        // Each session: its name, then start and end dates side by side; in date order.
+        S.sessions.slice().sort(function (a, b) { return String(a.starts_on || '9999').localeCompare(String(b.starts_on || '9999')) || a.name.localeCompare(b.name); }).map(function (s) {
+          return '<div class="sessrow"><div class="sessname">' + esc(s.name) + '</div><div class="sessdates"><label class="field">Starts<input type="date" data-sstart="' + s.id + '" value="' + esc(s.starts_on || '') + '"></label>' +
+            '<label class="field">Ends<input type="date" data-send="' + s.id + '" value="' + esc(s.ends_on || '') + '"></label></div></div>';
+        }).join('') +
+        '<form id="sessf" class="row" style="margin-top:10px"><input type="text" id="sesn" placeholder="New session name" aria-label="Session name" style="flex:1"><button>Add</button></form>' +
+        '<label class="field" style="margin-top:14px">Camp Flow registrations are for<select id="cfsess"><option value="">(not set)</option>' + S.sessions.map(function (x) { return '<option value="' + x.id + '"' + (st.campflow_session === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select></label>' +
+        '<p class="small muted" style="margin-top:-4px">Campers imported from Camp Flow are put in this session (unless Camp Flow\'s camper report says otherwise). Other sessions register online under Applications.</p></div>';
       html += '</div></div>';
       $main.innerHTML = html;
+      foldCards('settings');
 
       var sr = document.getElementById('sr'), scopeOf = function () { var r = S.roleList.find(function (x) { return x.key === sr.value; }); return r ? r.scope : 'camp'; },
         sync = function () { document.getElementById('ssw').hidden = scopeOf() !== 'session'; document.getElementById('sbw').hidden = scopeOf() !== 'bunk'; };
@@ -1606,6 +1641,13 @@
           .then(must).then(function () { toast('Added. They can sign in now.'); settingsPage(); }).catch(fail);
       };
       [].forEach.call($main.querySelectorAll('[data-rm]'), function (b) { b.onclick = function () { if (confirm('Remove this access?')) DB.from('staff').delete().eq('id', b.dataset.rm).then(must).then(settingsPage).catch(fail); }; });
+      document.getElementById('cfsess').onchange = function (e) {
+        var s2 = Object.assign({}, S.camp.settings, { campflow_session: e.target.value || null });
+        DB.from('camps').update({ settings: s2 }).eq('id', S.camp.id).then(must).then(function () {
+          S.camp.settings = s2;
+          return s2.campflow_session ? DB.rpc('assign_campflow_session', { p_camp: S.camp.id }).then(must) : 0;
+        }).then(function (n) { S.roster = null; toast(n ? 'Saved. ' + n + ' Camp Flow camper' + (n === 1 ? ' is' : 's are') + ' now in ' + sname(s2.campflow_session) + '.' : 'Saved'); }).catch(fail);
+      };
       document.getElementById('campf').onsubmit = function (e) {
         e.preventDefault();
         var s = Object.assign({}, S.camp.settings, { deadline: document.getElementById('dl').value || null, reply_to: document.getElementById('rt').value.trim() || null, phone: document.getElementById('ph').value.trim() || null, welcome_enabled: document.getElementById('welcome').checked, reminders_enabled: document.getElementById('rem').checked });

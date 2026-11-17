@@ -49,6 +49,11 @@ Deno.serve(async req => {
     const result = report === 'families' ? await importFamilies(db, camp, rows)
       : report === 'campers' ? await importCampers(db, camp, rows)
       : await importTransactions(db, camp, rows);
+    // Camp Flow campers not in any session yet go into the session Camp Flow registers for (Settings → Sessions).
+    if (report !== 'transactions') {
+      const { data: placed } = await db.rpc('assign_campflow_session', { p_camp: camp.id });
+      if (placed) result.counts.placed_in_session = placed;
+    }
     must(await db.from('import_runs').insert({ camp_id: camp.id, report, file_name: fileName, via, counts: result.counts, problems: result.problems.slice(0, 200) }), 'log');
     return json({ report, ...result });
   } catch (e) {

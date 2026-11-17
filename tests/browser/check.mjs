@@ -261,6 +261,21 @@ await so.context().close();
   await reg.context().close();
 }
 
+// A session's own link: only that session; a link to a session not offered online is closed.
+{
+  const P2 = JSON.parse(JSON.stringify(FAKE)); P2.session.user = { id: 'u-p2', email: 'p2@example.com' }; P2.tables.applications = [];
+  P2.rpc.registration_info = { camp_id: 'c1', name: 'Camp Teumim', kind: 'camper', open: true, enabled: true, form: {}, payment: {},
+    sessions: [{ id: 's1', name: 'Teumim Tammuz', starts_on: '2027-07-11' }, { id: 's2', name: 'Teumim Mesivta', starts_on: '2027-08-08' }] };
+  let r = await newPage(390, P2);
+  await r.goto('http://app.test/register.html?camp=teumim&session=teumim-tammuz'); await r.waitForTimeout(400);
+  if (!/Teumim Tammuz/.test(await r.locator('h1').innerText())) errors.push('session link heading');
+  const boxes = await r.locator('[data-sessions="0"] input').evaluateAll(x => x.map(i => i.value + ':' + i.checked));
+  if (boxes.join() !== 's1:true') errors.push('session link should offer only its session, ticked: ' + boxes.join());
+  await r.goto('http://app.test/register.html?camp=teumim&session=nope'); await r.waitForTimeout(400);
+  if (!/isn't open/.test(await r.locator('main').innerText())) errors.push('unknown session link not closed');
+  await r.context().close();
+}
+
 // A staff application on a phone.
 {
   const TEEN = JSON.parse(JSON.stringify(FAKE)); TEEN.session.user = { id: 'u-teen', email: 'teen@example.com' }; TEEN.tables.applications = [];
@@ -367,11 +382,15 @@ const sfspLink = await popup.locator('a', { hasText: 'Fill in the SFSP form' }).
 if (sfspLink && sfspLink !== 'https://wgcamps.com/apply.html?demo=1') errors.push('SFSP button in the test camp goes to ' + sfspLink);
 // Start over wipes changes; going to the sign-out clears too.
 await demo.goto('http://app.test/#settings'); await demo.waitForTimeout(400);
+if (await demo.locator('#se').isVisible() || !(await demo.locator('.foldhead').count())) errors.push('settings cards should start closed');
+await demo.screenshot({ path: path.join(out, 'demo-settings-closed.png'), fullPage: true });
+{ const closed = demo.locator('.foldhead[aria-expanded=\"false\"]'); for (let n = await closed.count(); n > 0; n--) await closed.first().click(); }
 await demo.locator('#se').fill('trial@example.com'); await demo.locator('#addstaff button.primary').click(); await demo.waitForTimeout(200);
 let staffText = await demo.locator('main').innerText();
 if (!/trial@example.com/.test(staffText)) errors.push('test camp: adding staff did not show');
 await demo.locator('#demoreset').click(); await demo.waitForTimeout(500);
 await demo.goto('http://app.test/#settings'); await demo.waitForTimeout(400);
+{ const closed = demo.locator('.foldhead[aria-expanded=\"false\"]'); for (let n = await closed.count(); n > 0; n--) await closed.first().click(); }
 staffText = await demo.locator('main').innerText();
 if (/trial@example.com/.test(staffText)) errors.push('Start over did not wipe changes');
 // "Viewing as" each role.
@@ -427,6 +446,7 @@ await demo.goto('http://app.test/#reports'); await demo.waitForTimeout(600);
 const rep = await demo.locator('main').innerText();
 if (!/Past reports/.test(rep) || !/So far for the next report/.test(rep)) errors.push('reports page: ' + rep.slice(0, 200));
 await demo.goto('http://app.test/#settings'); await demo.waitForTimeout(500);
+{ const closed = demo.locator('.foldhead[aria-expanded=\"false\"]'); for (let n = await closed.count(); n > 0; n--) await closed.first().click(); }
 await demo.locator('[data-col="parents"]').uncheck(); await demo.locator('[data-col="phone"]').check();
 await demo.locator('[data-col="missing"]').check(); await demo.locator('[data-col="balance"]').check(); await demo.locator('[data-col="mother"]').check();
 // Drag Phone up to the top of the list by its dots (the page scrolls while dragging near the top edge).

@@ -580,6 +580,7 @@
         var r = db.roles.find(function (x) { return x.key === me.role; }) || {};
         return { director: me.role === 'director', items: items, roles: [{ role: me.role, label: r.label, scope: scopeOf(), session_id: me.session_id || null, bunk_id: me.bunk_id || null }] };
       },
+      assign_campflow_session: function () { if (me.role !== 'director') notAllowed(); return 0; },   // the practice camp has no Camp Flow families
       bunk_list: function (a) {
         if (!canBunk(a.p_bunk, 'bunks', 'see')) notAllowed();
         return db.bunk_assignments.filter(function (x) { return x.bunk_id === a.p_bunk; }).map(function (x) {

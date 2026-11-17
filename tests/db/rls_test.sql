@@ -691,4 +691,25 @@ reset role;
 do $$ begin assert (select tax_form ->> 'type' from staff_members where application_id = '00000000-0000-0000-0000-00000000ab01') = 'W-4', 'staff record updated'; end $$;
 rollback;
 
+
+-- ---------- Camp Flow's session ----------
+begin;
+do $$ begin perform pg_temp.as_user('office@x.org'); end $$;
+do $$ begin perform assign_campflow_session('00000000-0000-0000-0000-0000000000c1'); raise exception 'office allowed'; exception when insufficient_privilege then null; end $$;
+reset role;
+set local role service_role;
+update camps set settings = settings || '{"campflow_session":"00000000-0000-0000-0000-0000000000e1"}' where id = '00000000-0000-0000-0000-0000000000c1';
+delete from enrollments;
+insert into families (id, camp_id, external_id, last_name) values ('00000000-0000-0000-0000-0000000000f9', '00000000-0000-0000-0000-0000000000c1', 'online:x', 'Online');
+insert into campers (camp_id, family_id, first_name, last_name) values ('00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-0000000000f9', 'Web', 'Online');
+reset role;
+do $$ begin perform pg_temp.as_user('dir@x.org'); end $$;
+do $$ declare n int; begin
+  n := assign_campflow_session('00000000-0000-0000-0000-0000000000c1');
+  assert n = (select count(*) from campers c join families f on f.id = c.family_id where f.external_id like 'campflow:%' and c.active and c.camp_id = '00000000-0000-0000-0000-0000000000c1') and n > 0, 'Camp Flow campers placed: ' || n;
+  assert not exists (select 1 from enrollments e join campers c on c.id = e.camper_id where c.first_name = 'Web'), 'online campers left alone';
+  assert assign_campflow_session('00000000-0000-0000-0000-0000000000c1') = 0, 'only once';
+end $$;
+rollback;
+
 \echo 'ALL DATABASE TESTS PASSED'

@@ -8,6 +8,11 @@
   var params = new URLSearchParams(location.search);
   var slug = params.get('camp') || cfg.campSlug;
   var KIND = params.get('kind') === 'staff' ? 'staff' : 'camper';
+  // A session's own link (?session=<name as a slug>): only that session is offered.
+  var SESSION = params.get('session') || '';
+  var slugOf = function (n) { return String(n || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''); };
+  // This page's address (for sign-in links), without sign-in leftovers.
+  var selfUrl = function (extra) { return location.origin + '/register.html?camp=' + encodeURIComponent(slug) + (KIND === 'staff' ? '&kind=staff' : '') + (SESSION ? '&session=' + encodeURIComponent(SESSION) : '') + (extra || ''); };
   var STAFF = KIND === 'staff';
   var sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
   var S = { info: null, user: null, app: null, saving: null };
@@ -43,11 +48,18 @@
       if (r.error) throw r.error;
       if (!r.data) return show('<h1>Camp not found</h1><p>Check the link you were given.</p>');
       S.info = r.data;
-      document.getElementById('campName').textContent = S.info.name;
+      if (SESSION) {
+        var only = S.info.sessions.find(function (x) { return slugOf(x.name) === SESSION || x.id === SESSION; });
+        // A session that isn't offered online (or a mistyped link) is closed.
+        if (!only) S.info.open = false;
+        S.info.sessions = only ? [only] : [];
+        S.info.sessionName = only ? only.name : '';
+      }
+      document.getElementById('campName').textContent = S.info.name + (S.info.sessionName ? ' · ' + S.info.sessionName : '');
       document.title = (STAFF ? 'Work at ' : 'Apply to ') + S.info.name;
       return sb.auth.getSession().then(function (x) {
         var s = x.data.session;
-        if (err) { history.replaceState(null, '', location.pathname + '?camp=' + encodeURIComponent(slug) + (STAFF ? '&kind=staff' : '')); return signIn('Sign-in didn\'t work: ' + err.replace(/\+/g, ' ') + '.'); }
+        if (err) { history.replaceState(null, '', selfUrl().replace(location.origin, '')); return signIn('Sign-in didn\'t work: ' + err.replace(/\+/g, ' ') + '.'); }
         if (S.recovering) return signIn(null, 'reset');
         if (!s) return intro();
         S.user = s.user;
@@ -64,7 +76,8 @@
 
   function closed() {
     var i = S.info, why;
-    if (!i.enabled) why = 'Online registration isn\'t open yet.';
+    if (SESSION && !i.sessionName) why = 'Online registration for this session isn\'t open. Check the link you were given.';
+    else if (!i.enabled) why = 'Online registration isn\'t open yet.';
     else if (i.opens_on && new Date(i.opens_on + 'T23:59:59') > new Date()) why = 'Registration opens on ' + day(i.opens_on) + '.';
     else why = 'Registration closed' + (i.closes_on ? ' on ' + day(i.closes_on) : '') + '.';
     show('<h1>' + esc(i.name) + '</h1><p>' + esc(why) + '</p>' + (i.contact ? '<p>Questions? Email <a href="mailto:' + esc(i.contact) + '">' + esc(i.contact) + '</a>.</p>' : '') +
@@ -81,7 +94,7 @@
   function signIn(msg, mode, withIntro) {
     mode = mode || 'in';
     var i = S.info;
-    show((withIntro ? '<h1>' + (STAFF ? 'Apply to work at ' : 'Apply to ') + esc(i.name) + '</h1>' + (i.intro ? '<p style="white-space:pre-line">' + esc(i.intro) + '</p>' : '') +
+    show((withIntro ? '<h1>' + (STAFF ? 'Apply to work at ' : 'Apply to ') + esc(i.name) + (i.sessionName ? ': ' + esc(i.sessionName) : '') + '</h1>' + (i.intro ? '<p style="white-space:pre-line">' + esc(i.intro) + '</p>' : '') +
         '<p class="muted">Sign in or create an account so you can come back to your application.</p>' : '') +
       '<div class="card signin"><h2 style="margin-top:0">' + { in: 'Sign in', up: 'Create an account', forgot: 'Reset your password', reset: 'Choose a new password' }[mode] + '</h2>' +
       (msg ? '<div class="' + (/^✓/.test(msg) ? 'notice' : 'error') + '">' + esc(msg.replace(/^✓\s*/, '')) + '</div>' : '') +
@@ -94,12 +107,12 @@
     [].forEach.call($app.querySelectorAll('[data-mode]'), function (a) { a.onclick = function (e) { e.preventDefault(); signIn(null, a.dataset.mode, withIntro); }; });
     var g = document.getElementById('g');
     if (g) g.onclick = function () {
-      sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + '/register.html?popup=1&camp=' + encodeURIComponent(slug) + (STAFF ? '&kind=staff' : ''), skipBrowserRedirect: true, queryParams: { prompt: 'select_account' } } }).then(function (r) {
+      sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: selfUrl('&popup=1'), skipBrowserRedirect: true, queryParams: { prompt: 'select_account' } } }).then(function (r) {
         if (r.error) throw r.error;
         if (!window.open(r.data.url, 'roster-google', 'width=500,height=650')) location.href = r.data.url;
       }).catch(oops);
     };
-    var here = location.origin + '/register.html?camp=' + encodeURIComponent(slug) + (STAFF ? '&kind=staff' : '');
+    var here = selfUrl();
     document.getElementById('pw').onsubmit = function (e) {
       e.preventDefault();
       var em = document.getElementById('em'), pw = document.getElementById('pwd');
@@ -197,7 +210,7 @@
           input('emergency.relation', 'emergency.' + n + '.relation', e.relation, { max: 60 }) + '</div>';
       }).join('') + customs('emergency', 'custom.', d.custom) + '</fieldset>' : '';
     var other = (asks('notes') ? '<label class="field">' + esc(F('notes').label) + (F('notes').mode === 'optional' ? ' <span class="small muted">(optional)</span>' : '') + '<textarea data-k="notes" maxlength="2000" rows="3"' + (F('notes').mode === 'required' ? ' data-req' : '') + '>' + esc(d.notes || '') + '</textarea></label>' : '') + customs('other', 'custom.', d.custom);
-    show('<h1>Apply to ' + esc(i.name) + '</h1>' + (i.intro ? '<p style="white-space:pre-line">' + esc(i.intro) + '</p>' : '') +
+    show('<h1>Apply to ' + esc(i.name) + (i.sessionName ? ': ' + esc(i.sessionName) : '') + '</h1>' + (i.intro ? '<p style="white-space:pre-line">' + esc(i.intro) + '</p>' : '') +
       '<p class="small muted">Signed in as ' + esc(S.user.email) + ' · <a href="#" id="out">Sign out</a> · <span class="saved" id="saved">Your answers are saved as you go.</span></p>' +
       (msg ? '<div class="error">' + esc(msg) + '</div>' : '') +
       '<form id="appf" novalidate>' +
@@ -250,6 +263,7 @@
       delete d.campers;
     } else d.campers = d.campers.filter(Boolean);
     d.emergency = d.emergency.filter(Boolean);
+    if (S.info.sessionName) { d.applied_for = S.info.sessions[0].id; d.applied_for_name = S.info.sessionName; }
     return d;
   }
   // Save the draft a moment after typing stops.
@@ -466,7 +480,7 @@
         }).join('') + '<p><button type="button" data-addexp="' + list + '">+ Add another camp</button></p></div>' +
         '<label class="check"><input type="checkbox" data-none="no_' + list + '"' + (none ? ' checked' : '') + '><span>None</span></label>';
     };
-    show('<h1>Apply to work at ' + esc(i.name) + '</h1>' + (i.intro ? '<p style="white-space:pre-line">' + esc(i.intro) + '</p>' : '') +
+    show('<h1>Apply to work at ' + esc(i.name) + (i.sessionName ? ': ' + esc(i.sessionName) : '') + '</h1>' + (i.intro ? '<p style="white-space:pre-line">' + esc(i.intro) + '</p>' : '') +
       '<p class="small muted">Signed in as ' + esc(S.user.email) + ' · <a href="#" id="out">Sign out</a> · <span class="saved" id="saved">Your answers are saved as you go.</span></p>' +
       (msg ? '<div class="error">' + esc(msg) + '</div>' : '') + '<form id="appf" novalidate>' +
       '<fieldset class="sec"><legend>About you</legend><div class="row2">' + input('first', 'first', d.first, { auto: 'given-name' }) + input('last', 'last', d.last, { auto: 'family-name' }) +
