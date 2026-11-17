@@ -1564,7 +1564,7 @@
       card.appendChild(body);
       var btn = document.createElement('button'); btn.type = 'button'; btn.className = 'foldhead';
       btn.innerHTML = '<span>' + esc(title) + '</span><span class="chev" aria-hidden="true">' + svg('<path d="m6 9 6 6 6-6"/>') + '</span>';
-      h.textContent = ''; h.appendChild(btn); h.style.margin = '0';
+      h.textContent = ''; h.appendChild(btn);
       var set = function (on) { card.classList.toggle('open', on); btn.setAttribute('aria-expanded', on ? 'true' : 'false'); body.hidden = !on; };
       set(!!open[title]);
       btn.onclick = function () { open[title] = !card.classList.contains('open'); set(open[title]); };

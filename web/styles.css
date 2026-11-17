@@ -138,7 +138,8 @@ button.danger { color: var(--bad); border-color: var(--bad); }
 .card > h2 > .foldhead:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 4px; }
 .card > h2 > .foldhead .chev svg { width: 20px; height: 20px; transition: transform .15s; color: var(--muted); }
 .card.open > h2 > .foldhead .chev svg { transform: rotate(180deg); }
-.card .foldbody { margin-top: 12px; }
+.card .foldbody { margin-top: 0; }
+.card:has(> h2 > .foldhead):not(.open) > h2:first-child { border-bottom: 0; margin-bottom: -14px !important; }
 
 .reglink { display: grid; grid-template-columns: minmax(110px, auto) 1fr auto; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
 .reglink code { font-size: 12px; word-break: break-all; color: var(--muted); }
