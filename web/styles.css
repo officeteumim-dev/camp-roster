@@ -117,3 +117,12 @@ table.kv tr:last-child th, table.kv tr:last-child td { border-bottom: 0; }
 .savebar { position: sticky; bottom: 0; background: var(--bg, #f5f4ef); padding: 10px 0; z-index: 3; }
 @media (max-width: 560px) { .qrow { grid-template-columns: 1fr; } }
 [hidden] { display: none !important; }
+
+.seg { display: inline-flex; gap: 6px; margin: 4px 0 12px; }
+.row2x { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0 14px; }
+details.colpick { position: relative; }
+details.colpick > summary { cursor: pointer; padding: 8px 12px; border: 1px solid var(--line-strong); border-radius: var(--r); background: var(--surface); list-style: none; }
+details.colpick > div { position: absolute; z-index: 6; top: calc(100% + 4px); left: 0; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r); padding: 8px 12px; min-width: 220px; max-height: 360px; overflow: auto; box-shadow: 0 8px 24px rgb(10 16 30 / .12); }
+button.sortbtn { all: unset; cursor: pointer; font: inherit; color: inherit; }
+button.sortbtn:focus-visible { outline: 2px solid var(--accent); }
+button.danger { color: var(--bad); border-color: var(--bad); }

@@ -35,8 +35,9 @@
         },
         from: builder,
         rpc: function (name, args) { var f = window.FAKE.rpc[name]; return Promise.resolve({ data: typeof f === 'function' ? f(args) : f, error: null }); },
-        storage: { from: function () { return {
-          upload: function () { return Promise.resolve({ data: {}, error: null }); },
+        storage: { from: function (bucket) { return {
+          upload: function (path) { (window.FAKE.uploads = window.FAKE.uploads || []).push({ bucket: bucket, path: path }); return Promise.resolve({ data: { path: path }, error: null }); },
+          remove: function (paths) { (window.FAKE.removed = window.FAKE.removed || []).push.apply(window.FAKE.removed, paths); return Promise.resolve({ data: [], error: null }); },
           createSignedUrl: function () { return Promise.resolve({ data: { signedUrl: 'about:blank' }, error: null }); },
           uploadToSignedUrl: function () { return Promise.resolve({ data: {}, error: null }); }
         }; } }

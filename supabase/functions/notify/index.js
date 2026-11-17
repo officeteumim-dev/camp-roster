@@ -231,13 +231,16 @@ async function applicationEmail(req, db, body) {
     });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message || `email service said ${r.status}`);
   };
-  const link = `${appUrl()}/register.html?camp=${encodeURIComponent(camp.slug)}`;
+  const staffApp = a.kind === 'staff';
+  const link = `${appUrl()}/register.html?camp=${encodeURIComponent(camp.slug)}${staffApp ? '&kind=staff' : ''}`;
   if (body.action === 'application_submitted') {
     // Anyone may poke this; it emails only the applicant, only once, only for a sent application.
     if (a.status !== 'submitted' || a.confirmation_sent_at) return { sent: false };
     const { data: claimed } = await db.from('applications').update({ confirmation_sent_at: new Date().toISOString() }).eq('id', a.id).is('confirmation_sent_at', null).select('id');
     if (!claimed || !claimed.length) return { sent: false };
-    await send(`We received your application to ${camp.name}`,
+    if (staffApp) await send(`We received your staff application to ${camp.name}`,
+      `Hi ${d.first || ''},\n\nThank you for applying to work at ${camp.name}! We received your application${(d.positions || []).length ? ` for ${d.positions.join(', ')}` : ''}.\n\nThe camp office will review it and be in touch. You can see what you sent at ${link}\n\nQuestions? Just reply to this email.`);
+    else await send(`We received your application to ${camp.name}`,
       `Thank you! We received your application for ${names} to ${camp.name}.\n\nThe camp office will review it and email you. You can see what you sent at ${link}\n\nQuestions? Just reply to this email.`);
     return { sent: true };
   }
@@ -247,6 +250,17 @@ async function applicationEmail(req, db, body) {
   if (!['accepted', 'waitlisted', 'declined'].includes(a.status) || a.emailed_status === a.status) return { sent: false };
   const { data: claimed } = await db.from('applications').update({ emailed_status: a.status }).eq('id', a.id).or(`emailed_status.is.null,emailed_status.neq.${a.status}`).select('id');
   if (!claimed || !claimed.length) return { sent: false };
+  if (staffApp) {
+    const { data: m } = a.staff_member_id ? await db.from('staff_members').select('positions').eq('id', a.staff_member_id).maybeSingle() : { data: null };
+    const pos = (m?.positions || []).join(', ');
+    const st = {
+      accepted: [`You're hired at ${camp.name}`, `Hi ${d.first || ''},\n\nGood news: we'd like you on the ${camp.name} staff${pos ? ` as ${pos}` : ''}!\n\nWe'll be in touch with next steps.\n\nQuestions? Just reply to this email.`],
+      waitlisted: [`${camp.name}: staff waiting list`, `Hi ${d.first || ''},\n\nThank you for applying to work at ${camp.name}. You're on our waiting list, and we'll be in touch if a position opens up.`],
+      declined: [`Your staff application to ${camp.name}`, `Hi ${d.first || ''},\n\nThank you for applying to work at ${camp.name}. We're not able to offer you a position this time.\n\nQuestions? Just reply to this email.`]
+    }[a.status];
+    await send(st[0], st[1]);
+    return { sent: true };
+  }
   const text = {
     accepted: `Good news: ${names} ${kids.length > 1 ? 'have' : 'has'} been accepted to ${camp.name}!\n\nWe'll email you soon with the forms we need before camp.\n\nQuestions? Just reply to this email.`,
     waitlisted: `Thank you for applying to ${camp.name}. ${names} ${kids.length > 1 ? 'are' : 'is'} on our waiting list, and we'll email you if a place opens up.\n\nQuestions? Just reply to this email.`,

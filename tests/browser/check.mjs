@@ -261,6 +261,44 @@ await so.context().close();
   await reg.context().close();
 }
 
+// A staff application on a phone.
+{
+  const TEEN = JSON.parse(JSON.stringify(FAKE)); TEEN.session.user = { id: 'u-teen', email: 'teen@example.com' }; TEEN.tables.applications = [];
+  TEEN.rpc.registration_info = { camp_id: 'c1', name: 'Camp Teumim', kind: 'staff', open: true, enabled: true, approval: true, positions: ['Lifeguard', 'Waiter', 'Counselor'], tax_form: 'choice', tax_when: 'apply',
+    sessions: [{ id: 's1', name: 'First Half', starts_on: '2027-07-01', ends_on: '2027-07-21' }], form: {}, payment: {} };
+  const t = await newPage(390, TEEN);
+  await t.goto('http://app.test/register.html?camp=teumim&kind=staff'); await t.waitForTimeout(400);
+  if (!/Apply to work at Camp Teumim/.test(await t.locator('h1').innerText())) errors.push('staff page heading');
+  const f = async (k, v) => t.locator(`[data-k="${k}"]`).fill(v);
+  await f('first', 'Avi'); await f('last', 'Stein'); await f('dob', '2009-04-01'); await t.locator('[data-k="gender"]').selectOption('Male');
+  await f('phone', '732-555-0300'); await f('address', '1 Main St'); await f('city', 'Lakewood'); await f('state', 'NJ'); await f('zip', '08701');
+  await f('school', 'Yeshiva'); await t.locator('[data-k="grade"]').selectOption('11th');
+  await t.locator('[data-positions] input[value="Lifeguard"]').check(); await t.locator('[data-staffsessions] input[value="s1"]').check();
+  await f('father.first', 'Shmuel'); await f('father.phone', '732-555-0301');
+  await f('emergency.0.name', 'Dina Stein'); await f('emergency.0.phone', '732-555-0302');
+  await f('camper_experience.0.camp', 'Camp A'); await f('camper_experience.0.years', '2018-2022');
+  await t.locator('#agree').check(); await t.locator('#sig').fill('Avi Stein');
+  await t.locator('#appf button.primary').click(); await t.waitForTimeout(300);
+  if (!/camps you worked at/.test(await t.locator('.formerr').innerText().catch(() => ''))) errors.push('staff experience not required');
+  if (!/your tax form \(W-4 or W-9\)/.test(await t.locator('.formerr').innerText().catch(() => ''))) errors.push('tax form not required');
+  await t.locator('[data-none="no_staff_experience"]').check();
+  await t.locator('[name="taxtype"][value="W-9"]').check(); await t.waitForTimeout(100);
+  if (!(await t.locator('a[href="https://www.irs.gov/pub/irs-pdf/fw9.pdf"]').count())) errors.push('W-9 download link missing');
+  await t.locator('#taxfile').setInputFiles({ name: 'my w9.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 test') }); await t.waitForTimeout(1500);
+  const up = await t.evaluate(() => window.FAKE.uploads || []);
+  if (!up.length || up[0].bucket !== 'tax-forms' || !/^c1\/[^/]+\/\d+-my_w9\.pdf$/.test(up[0].path)) errors.push('tax form not uploaded right: ' + JSON.stringify(up));
+  if (!/Uploaded/.test(await t.locator('#taxsec').innerText())) errors.push('tax form not shown as uploaded');
+  await t.screenshot({ path: path.join(out, 'staff-apply.png'), fullPage: true });
+  await t.locator('#appf button.primary').click(); await t.waitForTimeout(600);
+  const sw = await t.evaluate(() => window.FAKE.writes.filter(x => x.table === 'applications'));
+  const sl = sw.filter(x => x.value && x.value.data).pop();
+  if (!sl || sl.value.data.positions[0] !== 'Lifeguard' || sl.value.data.camper_experience[0].camp !== 'Camp A' || !sl.value.data.no_staff_experience || sl.value.data.sessions[0] !== 's1' || sl.value.kind !== undefined && sl.value.kind !== 'staff') errors.push('staff application not saved right: ' + JSON.stringify(sl && sl.value));
+  if (!sw.some(x => x.op === 'insert' && x.value.kind === 'staff')) errors.push('not saved as a staff application');
+  if (!sl || !sl.value.data.tax_form || sl.value.data.tax_form.type !== 'W-9') errors.push('tax form not recorded on the application');
+  if (!/We received your application/.test(await t.locator('main').innerText())) errors.push('no staff confirmation');
+  await t.context().close();
+}
+
 // The public: signed in but on no camp. Until the owner opens Camp Test Site to everyone, they can only ask to open a camp.
 const STRANGER = JSON.parse(JSON.stringify(FAKE)); STRANGER.rpc.my_access = []; STRANGER.session.user.email = 'stranger@example.com';
 STRANGER.rpc.site_info = { admin: false, public_test_camp: false, my_request: null };
@@ -352,7 +390,7 @@ if (await demo.locator('[data-approve]').count()) errors.push('office sees Appro
 await viewAs('infirmary');
 if (/Settings|Money/.test(await nav())) errors.push('infirmary nav: ' + await nav());
 await viewAs('director');
-if (await nav() !== 'Roster,Forms,Bunks,Money,Imports,Applications,Reports,Settings,Activity') errors.push('director nav: ' + await nav());
+if (await nav() !== 'Roster,Forms,Bunks,Staff roster,Money,Imports,Applications,Reports,Settings,Activity') errors.push('director nav: ' + await nav());
 
 // Who can see what (test camp): add a Kitchen role that sees names and alerts, then view as Kitchen.
 await demo.goto('http://app.test/#settings/access'); await demo.waitForTimeout(600);
@@ -455,7 +493,34 @@ const qs = await demo.locator('li[data-qid] [data-q="label"]').evaluateAll(x => 
 if (qs.join('|') !== 'Which shul?|T-shirt size' && qs.join('|') !== 'T-shirt size|Which shul?') errors.push('questions not kept: ' + qs.join('|'));
 if ((await demo.locator('[data-bmode="camper.hebrew_name"]').inputValue()) !== 'hidden') errors.push('Not asked not kept');
 await demo.goto('http://app.test/#roster'); await demo.waitForTimeout(500);
+// Staff: applications tab, hiring with chosen positions, a returning staff member matched, the staff roster.
+await demo.goto('http://app.test/#applications'); await demo.waitForTimeout(400);
+await demo.locator('[data-kind="staff"]').click(); await demo.waitForTimeout(400);
+if (!/Yehuda Adler/.test(await demo.locator('main').innerText())) errors.push('staff applications not listed');
+await demo.goto('http://app.test/#applications/sapp-1'); await demo.waitForTimeout(500);
+if (!(await demo.locator('[data-taxview]').count())) errors.push('director cannot view tax form');
+await demo.screenshot({ path: path.join(out, 'demo-staff-application.png'), fullPage: true });
+await demo.locator('[data-hpos][value="Counselor"]').uncheck();
+await demo.locator('#hire').click(); await demo.waitForTimeout(500);
+if (!/Hired/.test(await demo.locator('h1').innerText())) errors.push('staff not hired');
+await demo.goto('http://app.test/#applications/sapp-3'); await demo.waitForTimeout(500);
+if (!(await demo.locator('[data-hinto]').count())) errors.push('returning staff not matched');
+await demo.goto('http://app.test/#staffroster'); await demo.waitForTimeout(500);
+await demo.locator('#spos').selectOption('Lifeguard'); await demo.waitForTimeout(400);
+const lg = await demo.locator('main tbody tr').count(), lgText = await demo.locator('main').innerText();
+if (!/Yehuda Adler/.test(lgText) || lg < 2) errors.push('hired lifeguard not on the staff roster: ' + lg);
+await demo.screenshot({ path: path.join(out, 'demo-staff-roster.png'), fullPage: true });
+await demo.locator('#addstaff').click(); await demo.waitForTimeout(400);
+await demo.locator('[data-m="first_name"]').fill('Hired'); await demo.locator('[data-m="last_name"]').fill('Elsewhere');
+await demo.locator('[data-mpos][value="Kitchen staff"]').check(); await demo.locator('#smf button.primary').click(); await demo.waitForTimeout(500);
+if (!/Hired Elsewhere/.test(await demo.locator('h1').innerText())) errors.push('staff member not added: ' + demo.url());
+await demo.goto('http://app.test/#applications/setup-staff'); await demo.waitForTimeout(400);
+if (!(await demo.locator('#r_pos').count()) || await demo.locator('#addplan').count()) errors.push('staff setup page wrong');
+await demo.locator('#r_pos').fill('Lifeguard\nWaiter\nArts and crafts'); await demo.locator('#regf button.primary').click(); await demo.waitForTimeout(400);
+await demo.goto('http://app.test/#applications/sapp-2'); await demo.waitForTimeout(400);
+if (!(await demo.locator('[data-hpos][value="Arts and crafts"]').count())) errors.push('new position not offered when hiring');
 await viewAs('counselor@bunk-boys-1');
+if (/Staff roster/.test(await nav())) errors.push('counselor sees the staff roster');
 if (/Applications/.test(await nav())) errors.push('counselor sees Applications');
 if (/Reports/.test(await nav())) errors.push('counselor sees Reports');
 await viewAs('office');

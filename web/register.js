@@ -7,7 +7,8 @@
   var $app = document.getElementById('app');
   var params = new URLSearchParams(location.search);
   var slug = params.get('camp') || cfg.campSlug;
-  var KIND = 'camper';
+  var KIND = params.get('kind') === 'staff' ? 'staff' : 'camper';
+  var STAFF = KIND === 'staff';
   var sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
   var S = { info: null, user: null, app: null, saving: null };
 
@@ -43,19 +44,19 @@
       if (!r.data) return show('<h1>Camp not found</h1><p>Check the link you were given.</p>');
       S.info = r.data;
       document.getElementById('campName').textContent = S.info.name;
-      document.title = 'Apply to ' + S.info.name;
+      document.title = (STAFF ? 'Work at ' : 'Apply to ') + S.info.name;
       return sb.auth.getSession().then(function (x) {
         var s = x.data.session;
-        if (err) { history.replaceState(null, '', location.pathname + '?camp=' + encodeURIComponent(slug)); return signIn('Sign-in didn\'t work: ' + err.replace(/\+/g, ' ') + '.'); }
+        if (err) { history.replaceState(null, '', location.pathname + '?camp=' + encodeURIComponent(slug) + (STAFF ? '&kind=staff' : '')); return signIn('Sign-in didn\'t work: ' + err.replace(/\+/g, ' ') + '.'); }
         if (S.recovering) return signIn(null, 'reset');
         if (!s) return intro();
         S.user = s.user;
         return sb.from('applications').select('*').eq('camp_id', S.info.camp_id).eq('kind', KIND).eq('user_id', s.user.id).order('created_at', { ascending: false }).limit(1).then(function (a) {
           if (a.error) throw a.error;
           S.app = a.data[0] || null;
-          if (S.app && S.app.status !== 'draft') return status();
+          if (S.app && S.app.status !== 'draft') return STAFF ? staffStatus() : status();
           if (!S.info.open) return closed();
-          form();
+          STAFF ? staffForm() : form();
         });
       });
     }).catch(oops);
@@ -80,7 +81,7 @@
   function signIn(msg, mode, withIntro) {
     mode = mode || 'in';
     var i = S.info;
-    show((withIntro ? '<h1>Apply to ' + esc(i.name) + '</h1>' + (i.intro ? '<p style="white-space:pre-line">' + esc(i.intro) + '</p>' : '') +
+    show((withIntro ? '<h1>' + (STAFF ? 'Apply to work at ' : 'Apply to ') + esc(i.name) + '</h1>' + (i.intro ? '<p style="white-space:pre-line">' + esc(i.intro) + '</p>' : '') +
         '<p class="muted">Sign in or create an account so you can come back to your application.</p>' : '') +
       '<div class="card signin"><h2 style="margin-top:0">' + { in: 'Sign in', up: 'Create an account', forgot: 'Reset your password', reset: 'Choose a new password' }[mode] + '</h2>' +
       (msg ? '<div class="' + (/^✓/.test(msg) ? 'notice' : 'error') + '">' + esc(msg.replace(/^✓\s*/, '')) + '</div>' : '') +
@@ -93,12 +94,12 @@
     [].forEach.call($app.querySelectorAll('[data-mode]'), function (a) { a.onclick = function (e) { e.preventDefault(); signIn(null, a.dataset.mode, withIntro); }; });
     var g = document.getElementById('g');
     if (g) g.onclick = function () {
-      sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + '/register.html?popup=1&camp=' + encodeURIComponent(slug), skipBrowserRedirect: true, queryParams: { prompt: 'select_account' } } }).then(function (r) {
+      sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + '/register.html?popup=1&camp=' + encodeURIComponent(slug) + (STAFF ? '&kind=staff' : ''), skipBrowserRedirect: true, queryParams: { prompt: 'select_account' } } }).then(function (r) {
         if (r.error) throw r.error;
         if (!window.open(r.data.url, 'roster-google', 'width=500,height=650')) location.href = r.data.url;
       }).catch(oops);
     };
-    var here = location.origin + '/register.html?camp=' + encodeURIComponent(slug);
+    var here = location.origin + '/register.html?camp=' + encodeURIComponent(slug) + (STAFF ? '&kind=staff' : '');
     document.getElementById('pw').onsubmit = function (e) {
       e.preventDefault();
       var em = document.getElementById('em'), pw = document.getElementById('pwd');
@@ -127,7 +128,7 @@
   }
 
   // ---------- The application (questions as the camp set them up: web/reg-form.js) ----------
-  var F = function (key) { return window.RegForm.field(S.info.form, key); };
+  var F = function (key) { return window.RegForm.field(S.info.form, key, KIND); };
   var asks = function (key) { var f = F(key); return f && f.mode !== 'hidden'; };
   var plans = function () { return ((S.info.payment || {}).plans || []).filter(function (p) { return p && p.name; }); };
   function blankKid() { return { first: '', last: '', dob: '', gender: '', grade: '', hebrew_name: '', custom: {}, sessions: S.info.sessions.length === 1 ? [S.info.sessions[0].id] : [] }; }
@@ -230,7 +231,7 @@
     o[path[path.length - 1]] = v;
   }
   function collect() {
-    var d = { father: {}, mother: {}, emergency: [], campers: [], custom: {} };
+    var d = STAFF ? { father: {}, mother: {}, emergency: [], camper_experience: [], staff_experience: [], custom: {} } : { father: {}, mother: {}, emergency: [], campers: [], custom: {} };
     [].forEach.call($app.querySelectorAll('[data-k]'), function (el) { setPath(d, el.dataset.k, el.value.trim()); });
     [].forEach.call($app.querySelectorAll('[data-multi]'), function (box) { setPath(d, box.dataset.multi, [].filter.call(box.querySelectorAll('input'), function (x) { return x.checked; }).map(function (x) { return x.value; })); });
     [].forEach.call($app.querySelectorAll('.kid'), function (el) { var n = +el.dataset.kid; d.campers[n] = d.campers[n] || {}; d.campers[n].custom = d.campers[n].custom || {}; });
@@ -238,9 +239,17 @@
       var n = +box.dataset.sessions; d.campers[n] = d.campers[n] || {};
       d.campers[n].sessions = [].filter.call(box.querySelectorAll('input'), function (x) { return x.checked; }).map(function (x) { return x.value; });
     });
+    [].forEach.call($app.querySelectorAll('[data-none]'), function (x) { d[x.dataset.none] = x.checked; });
     var pick = $app.querySelector('[data-plan] input:checked');
     if (pick) { var pl = plans().find(function (p) { return p.id === pick.value; }); d.payment_plan = pick.value; d.payment_plan_name = pl ? pl.name : ''; }
-    d.campers = d.campers.filter(Boolean); d.emergency = d.emergency.filter(Boolean);
+    if (STAFF) {
+      if (S.app && S.app.data && S.app.data.tax_form) d.tax_form = S.app.data.tax_form;
+      d.camper_experience = d.camper_experience.filter(Boolean); d.staff_experience = d.staff_experience.filter(Boolean);
+      var sb2 = $app.querySelector('[data-staffsessions]'); d.sessions = sb2 ? [].filter.call(sb2.querySelectorAll('input'), function (x) { return x.checked; }).map(function (x) { return x.value; }) : [];
+      var pb = $app.querySelector('[data-positions]'); d.positions = pb ? [].filter.call(pb.querySelectorAll('input'), function (x) { return x.checked; }).map(function (x) { return x.value; }) : [];
+      delete d.campers;
+    } else d.campers = d.campers.filter(Boolean);
+    d.emergency = d.emergency.filter(Boolean);
     return d;
   }
   // Save the draft a moment after typing stops.
@@ -274,6 +283,7 @@
     [].forEach.call($app.querySelectorAll('[data-multireq]'), function (box) {
       if (!box.querySelector('input:checked')) { var kidEl = box.closest('.kid'); out.push((kidEl ? 'camper ' + (+kidEl.dataset.kid + 1) + '\'s ' : '') + box.dataset.multireq.toLowerCase()); }
     });
+    if (STAFF) return out.concat(staffProblems(d, mark));
     // At least one parent with every parent question the camp requires.
     var need = ['first', 'email'].concat(F('parent.phone').mode === 'required' ? ['phone'] : []);
     var full = function (w) { return need.every(function (k) { return d[w][k]; }); };
@@ -312,8 +322,160 @@
       sb.auth.getSession().then(function (x) {
         return fetch(cfg.supabaseUrl + '/functions/v1/notify', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + x.data.session.access_token, apikey: cfg.supabaseAnonKey }, body: JSON.stringify({ action: 'application_submitted', id: S.app.id }) });
       }).catch(function () { });
-      status();
-    }).catch(function (e) { btn2.disabled = false; btn2.textContent = 'Send application'; form(e.message || String(e)); });
+      STAFF ? staffStatus() : status();
+    }).catch(function (e) { btn2.disabled = false; btn2.textContent = 'Send application'; (STAFF ? staffForm : form)(e.message || String(e)); });
+  }
+
+
+
+  // ---------- Tax form (W-4 / W-9): the filled-in IRS form, uploaded as a file ----------
+  var IRS = { 'W-4': 'https://www.irs.gov/pub/irs-pdf/fw4.pdf', 'W-9': 'https://www.irs.gov/pub/irs-pdf/fw9.pdf' };
+  function taxTypes() { return { w4: ['W-4'], w9: ['W-9'], choice: ['W-4', 'W-9'] }[S.info.tax_form] || []; }
+  function taxSection(d) {
+    var t = (d && d.tax_form) || {}, types = taxTypes(), chosen = t.type || (types.length === 1 ? types[0] : (S.taxType || ''));
+    return '<fieldset class="sec" id="taxsec"><legend>Tax form</legend>' +
+      (types.length > 1 ? '<p style="margin-top:4px">Which form? <span class="small muted">If you\'re not sure, ask the camp office.</span></p><div class="sessions">' +
+        '<label class="check"><input type="radio" name="taxtype" value="W-4"' + (chosen === 'W-4' ? ' checked' : '') + '><span><strong>W-4</strong> <span class="small muted">I\'ll be an employee</span></span></label>' +
+        '<label class="check"><input type="radio" name="taxtype" value="W-9"' + (chosen === 'W-9' ? ' checked' : '') + '><span><strong>W-9</strong> <span class="small muted">I\'ll be paid as an independent contractor</span></span></label></div>' : '') +
+      '<ol class="small" style="padding-left:20px;line-height:1.6"><li>Download the form' + (chosen ? ': <a href="' + IRS[chosen] + '" target="_blank" rel="noopener">IRS Form ' + chosen + ' (PDF)</a>' : ' (choose which one above)') + '.</li><li>Fill it in and sign it.</li><li>Upload it here as a PDF or a clear photo.</li></ol>' +
+      (t.path ? '<p><span class="chip good">Uploaded</span> ' + esc(t.type) + ': ' + esc(t.name || '') + '</p>' : '') +
+      '<label class="field">' + (t.path ? 'Replace it' : 'Upload your ' + (chosen || 'form')) + '<input type="file" id="taxfile" accept="application/pdf,image/*"></label>' +
+      '<p class="small muted">It includes your Social Security number, so only the camp\'s directors and the people they allow can see it.</p></fieldset>';
+  }
+  function bindTax(afterHire) {
+    [].forEach.call($app.querySelectorAll('[name="taxtype"]'), function (r) { r.onchange = function () { S.taxType = r.value; var box = document.getElementById('taxsec'); if (box) { box.outerHTML = taxSection(afterHire ? S.app.data : collect()); bindTax(afterHire); } }; });
+    var inp = document.getElementById('taxfile'); if (!inp) return;
+    inp.onchange = function () {
+      var file = inp.files[0]; if (!file) return;
+      var types = taxTypes(), picked = $app.querySelector('[name="taxtype"]:checked'), type = types.length === 1 ? types[0] : picked && picked.value;
+      if (!type) { alert('Choose W-4 or W-9 first.'); inp.value = ''; return; }
+      if (file.size > 10 * 1024 * 1024) { alert('That file is over 10 MB. Try a PDF, or a smaller photo.'); inp.value = ''; return; }
+      inp.disabled = true;
+      var ready = afterHire ? Promise.resolve() : save(true);
+      ready.then(function () {
+        var path = S.info.camp_id + '/' + S.app.id + '/' + Date.now() + '-' + file.name.replace(/[^A-Za-z0-9._-]+/g, '_').slice(-80);
+        return sb.storage.from('tax-forms').upload(path, file, { upsert: false, contentType: file.type || 'application/octet-stream' }).then(function (r) {
+          if (r.error) throw r.error;
+          var t = { type: type, path: path, name: file.name, uploaded_at: new Date().toISOString() };
+          if (afterHire) return sb.rpc('attach_tax_form', { p_app: S.app.id, p_type: type, p_path: path, p_name: file.name }).then(function (x) { if (x.error) throw x.error; S.app.data = Object.assign({}, S.app.data, { tax_form: t }); });
+          S.app.data = Object.assign({}, S.app.data || {}, { tax_form: t });
+          return save(true);
+        });
+      }).then(function () {
+        var box = document.getElementById('taxsec'); if (box) { box.outerHTML = taxSection(S.app.data); bindTax(afterHire); }
+      }).catch(function (e) { inp.disabled = false; alert('The upload didn\'t work: ' + (e.message || e)); });
+    };
+  }
+
+  // ---------- Staff application ----------
+  function staffData() {
+    var d = (S.app && S.app.data) || {};
+    d.father = d.father || {}; d.mother = d.mother || {}; d.custom = d.custom || {};
+    d.emergency = d.emergency && d.emergency.length ? d.emergency : [{}];
+    d.camper_experience = d.camper_experience && d.camper_experience.length ? d.camper_experience : [{}];
+    d.staff_experience = d.staff_experience && d.staff_experience.length ? d.staff_experience : [{}];
+    if (!d.email && S.user) d.email = S.user.email;
+    return d;
+  }
+  function staffForm(msg) {
+    var d = staffData(), i = S.info, positions = i.positions || window.RegForm.POSITIONS, g = F('grade');
+    var sel = function (key, inner) { var f = F(key); if (!f || f.mode === 'hidden') return ''; return '<label class="field">' + esc(f.label) + (f.mode === 'optional' ? ' <span class="small muted">(optional)</span>' : '') + '<select data-k="' + key + '"' + (f.mode === 'required' ? ' data-req' : '') + '><option value="">Choose…</option>' + inner + '</select></label>'; };
+    var exp = function (kind, rows, cols) {
+      var key = 'experience.' + kind; if (!asks(key)) return '';
+      var f = F(key), list = kind === 'camper' ? 'camper_experience' : 'staff_experience', none = d['no_' + list];
+      return '<div class="field" style="font-weight:700;margin-top:10px">' + esc(f.label) + (f.mode === 'optional' ? ' <span class="small muted">(optional)</span>' : '') + '</div>' +
+        '<div data-exp="' + list + '"' + (none ? ' hidden' : '') + '>' + rows.map(function (r, n) {
+          return '<div class="row2 exprow">' + cols.map(function (c) { return '<label class="field">' + c[1] + '<input type="text" data-k="' + list + '.' + n + '.' + c[0] + '" value="' + esc(r[c[0]] || '') + '" maxlength="120"' + (c[2] ? ' placeholder="' + c[2] + '"' : '') + '></label>'; }).join('') + '</div>';
+        }).join('') + '<p><button type="button" data-addexp="' + list + '">+ Add another camp</button></p></div>' +
+        '<label class="check"><input type="checkbox" data-none="no_' + list + '"' + (none ? ' checked' : '') + '><span>None</span></label>';
+    };
+    show('<h1>Apply to work at ' + esc(i.name) + '</h1>' + (i.intro ? '<p style="white-space:pre-line">' + esc(i.intro) + '</p>' : '') +
+      '<p class="small muted">Signed in as ' + esc(S.user.email) + ' · <a href="#" id="out">Sign out</a> · <span class="saved" id="saved">Your answers are saved as you go.</span></p>' +
+      (msg ? '<div class="error">' + esc(msg) + '</div>' : '') + '<form id="appf" novalidate>' +
+      '<fieldset class="sec"><legend>About you</legend><div class="row2">' + input('first', 'first', d.first, { auto: 'given-name' }) + input('last', 'last', d.last, { auto: 'family-name' }) +
+      input('dob', 'dob', d.dob, { type: 'date' }) + sel('gender', '<option value="Male"' + (d.gender === 'Male' ? ' selected' : '') + '>Male</option><option value="Female"' + (d.gender === 'Female' ? ' selected' : '') + '>Female</option>') +
+      input('phone', 'phone', d.phone, { type: 'tel', auto: 'tel', inputmode: 'tel', max: 40 }) + input('email', 'email', d.email, { type: 'email', auto: 'email', max: 160 }) +
+      input('hebrew_name', 'hebrew_name', d.hebrew_name) + '</div>' + input('address', 'address', d.address, { auto: 'street-address', max: 160 }) + '<div class="row2">' +
+      input('city', 'city', d.city, { auto: 'address-level2' }) + input('state', 'state', d.state, { auto: 'address-level1', max: 40 }) + input('zip', 'zip', d.zip, { auto: 'postal-code', inputmode: 'numeric', max: 10 }) +
+      input('school', 'school', d.school, { max: 160 }) + sel('grade', (g ? g.options : []).map(function (x) { return '<option' + (d.grade === x ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('')) + '</div>' +
+      customs('applicant', 'custom.', d.custom) + '</fieldset>' +
+      '<fieldset class="sec"><legend>The job</legend><div class="field" style="font-weight:700">' + esc(F('positions').label) + ' <span class="small muted">(choose all that interest you)</span></div><div class="sessions" data-positions>' +
+      positions.map(function (p) { return '<label class="check"><input type="checkbox" value="' + esc(p) + '"' + ((d.positions || []).indexOf(p) >= 0 ? ' checked' : '') + '><span>' + esc(p) + '</span></label>'; }).join('') + '</div>' +
+      (i.sessions.length && asks('sessions') ? '<div class="field" style="font-weight:700">' + esc(F('sessions').label) + (F('sessions').mode === 'optional' ? ' <span class="small muted">(optional)</span>' : '') + '</div><div class="sessions" data-staffsessions>' + i.sessions.map(function (x) {
+        return '<label class="check"><input type="checkbox" value="' + esc(x.id) + '"' + ((d.sessions || []).indexOf(x.id) >= 0 ? ' checked' : '') + '><span>' + esc(x.name) + (range(x) ? ' <span class="muted small">' + esc(range(x)) + '</span>' : '') + '</span></label>'; }).join('') + '</div>' : '') +
+      customs('job', 'custom.', d.custom) + '</fieldset>' +
+      (asks('parent.first') ? '<fieldset class="sec"><legend>Parents</legend>' + ['father', 'mother'].map(function (w) {
+        var p = d[w];
+        return '<h3 style="margin:8px 0 0">' + (w === 'father' ? 'Father' : 'Mother') + '</h3><div class="row2">' + input('parent.first', w + '.first', p.first, { label: 'First name', parent: true, noMark: true }) +
+          input('parent.phone', w + '.phone', p.phone, { label: 'Cell phone', type: 'tel', inputmode: 'tel', max: 40, parent: true, noMark: true }) + input('parent.email', w + '.email', p.email, { label: 'Email', type: 'email', max: 160, parent: true, noMark: true }) + '</div>';
+      }).join('') + (F('parent.first').mode === 'required' ? '<p class="small muted">At least one parent.</p>' : '') + customs('parents', 'custom.', d.custom) + '</fieldset>' : '') +
+      (asks('emergency') ? '<fieldset class="sec"><legend>Emergency contact</legend>' + d.emergency.slice(0, 1).map(function (e) {
+        return '<div class="row2">' + input('emergency', 'emergency.0.name', e.name, { label: 'Name' }) + input('emergency', 'emergency.0.phone', e.phone, { label: 'Phone', type: 'tel', inputmode: 'tel', max: 40 }) + input('emergency.relation', 'emergency.0.relation', e.relation, { max: 60 }) + '</div>';
+      }).join('') + customs('emergency', 'custom.', d.custom) + '</fieldset>' : '') +
+      '<fieldset class="sec"><legend>Camp experience</legend>' +
+      exp('camper', d.camper_experience, [['camp', 'Camp'], ['years', 'Years', 'e.g. 2019–2023']]) +
+      exp('staff', d.staff_experience, [['camp', 'Camp'], ['position', 'Position'], ['years', 'Years', 'e.g. 2025']]) +
+      customs('experience', 'custom.', d.custom) + '</fieldset>' +
+      (i.tax_form && i.tax_form !== 'none' && i.tax_when !== 'hired' ? taxSection(d) : '') +
+      ((asks('notes') || window.RegForm.custom(i.form, 'other').length) ? '<fieldset class="sec"><legend>Anything else?</legend>' + (asks('notes') ? '<label class="field">' + esc(F('notes').label) + (F('notes').mode === 'optional' ? ' <span class="small muted">(optional)</span>' : '') + '<textarea data-k="notes" maxlength="2000" rows="3"' + (F('notes').mode === 'required' ? ' data-req' : '') + '>' + esc(d.notes || '') + '</textarea></label>' : '') + customs('other', 'custom.', d.custom) + '</fieldset>' : '') +
+      '<fieldset class="sec"><legend>Agreement</legend>' + (i.agreement ? '<div class="consent-text agree">' + esc(i.agreement) + '</div>' : '') +
+      '<label class="check" style="margin-top:12px"><input type="checkbox" id="agree"><span>' + (i.agreement ? 'I have read and agree to the above.' : 'The information in this application is correct.') + '</span></label>' +
+      '<label class="field">Type your full name to sign<input type="text" id="sig" maxlength="200" autocomplete="name" value="' + esc((S.app && S.app.signature) || '') + '"></label></fieldset>' +
+      '<p><button class="primary" style="width:100%">Send application</button></p></form>');
+    bindOut();
+    var f = document.getElementById('appf');
+    f.addEventListener('input', function () { save(); });
+    f.addEventListener('change', function (e) {
+      if (e.target.dataset && e.target.dataset.none) { var box = $app.querySelector('[data-exp="' + e.target.dataset.none.slice(3) + '"]'); if (box) box.hidden = e.target.checked; }
+      save();
+    });
+    bindTax(false);
+    [].forEach.call($app.querySelectorAll('[data-addexp]'), function (b) { b.onclick = function () { var d2 = collect(); d2[b.dataset.addexp].push({}); S.app = Object.assign(S.app || {}, { data: d2 }); staffForm(); save(); }; });
+    f.onsubmit = function (e) { e.preventDefault(); submit(); };
+  }
+  function staffProblems(d, mark) {
+    var out = [];
+    if (!(d.positions || []).length) out.push('at least one position');
+    if (S.info.sessions.length && asks('sessions') && F('sessions').mode === 'required' && !(d.sessions || []).length) out.push('the sessions you can work');
+    if (asks('parent.first') && F('parent.first').mode === 'required') {
+      var need = ['first'].concat(F('parent.phone').mode === 'required' ? ['phone'] : []).concat(F('parent.email').mode === 'required' ? ['email'] : []);
+      if (!['father', 'mother'].some(function (w) { return need.every(function (k) { return d[w][k]; }); })) { out.push('a parent\'s ' + need.map(function (k) { return { first: 'name', phone: 'cell phone', email: 'email' }[k]; }).join(' and ')); need.forEach(function (k) { if (!d.father[k]) mark($app.querySelector('[data-k="father.' + k + '"]')); }); }
+    }
+    ['camper', 'staff'].forEach(function (k) {
+      var key = 'experience.' + k, list = k + '_experience';
+      if (!asks(key) || F(key).mode !== 'required') return;
+      if (!d['no_' + list] && !(d[list] || []).some(function (r) { return r && r.camp; })) { out.push(k === 'camper' ? 'camps you went to as a camper (or tick None)' : 'camps you worked at (or tick None)'); mark($app.querySelector('[data-k="' + list + '.0.camp"]')); }
+    });
+    if (S.info.tax_form && S.info.tax_form !== 'none' && S.info.tax_when !== 'hired' && !(S.app && S.app.data && S.app.data.tax_form && S.app.data.tax_form.path)) out.push('your tax form (' + taxTypes().join(' or ') + ')');
+    if (d.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(d.email)) { out.push('a valid email'); mark($app.querySelector('[data-k="email"]')); }
+    if (!document.getElementById('agree').checked) out.push('the agreement checkbox');
+    if (!document.getElementById('sig').value.trim()) { out.push('your signature'); mark(document.getElementById('sig')); }
+    return out;
+  }
+  function staffStatus() {
+    var a = S.app, d = a.data || {}, i = S.info;
+    var head = {
+      submitted: ['We received your application', 'The camp office will review it and be in touch at ' + esc(a.email) + '.'],
+      waitlisted: ['You\'re on our waiting list', 'We\'ll be in touch if a position opens up.'],
+      accepted: ['You\'re hired!', 'Welcome to the ' + esc(i.name) + ' staff. Watch for an email with next steps.'],
+      declined: ['Thank you for applying', 'We\'re not able to offer you a position this time.'],
+      withdrawn: ['Application withdrawn', '']
+    }[a.status] || ['Application', ''];
+    var sess = {}; i.sessions.forEach(function (x) { sess[x.id] = x.name; });
+    var rows = function (list, cols) { return (list || []).filter(function (r) { return r && r.camp; }).map(function (r) { return esc(cols.map(function (c) { return r[c]; }).filter(Boolean).join(', ')); }).join('<br>') || 'None'; };
+    var needTax = a.status === 'accepted' && i.tax_form && i.tax_form !== 'none' && i.tax_when === 'hired';
+    show('<h1>' + esc(i.name) + '</h1><div class="status"><h2 style="margin:0 0 6px">' + head[0] + '</h2><p style="margin:0">' + head[1] + '</p></div>' +
+      (needTax ? '<p style="margin-top:18px"><strong>Next step:</strong> please send us your tax form.</p>' + taxSection(d) : '') +
+      '<h2 style="margin-top:26px">Your application</h2><dl class="sum">' +
+      '<dt>Name</dt><dd>' + esc([d.first, d.last].filter(Boolean).join(' ')) + (d.grade ? ', ' + esc(d.grade) : '') + (d.school ? ' · ' + esc(d.school) : '') + '</dd>' +
+      '<dt>Positions</dt><dd>' + esc((d.positions || []).join(', ')) + '</dd>' +
+      ((d.sessions || []).length ? '<dt>Sessions</dt><dd>' + esc(d.sessions.map(function (x) { return sess[x] || ''; }).filter(Boolean).join(' & ')) + '</dd>' : '') +
+      '<dt>As a camper</dt><dd>' + rows(d.camper_experience, ['camp', 'years']) + '</dd><dt>On staff</dt><dd>' + rows(d.staff_experience, ['camp', 'position', 'years']) + '</dd>' +
+      '<dt>Sent</dt><dd>' + esc(a.submitted_at ? new Date(a.submitted_at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : '') + ' · signed by ' + esc(a.signature || '') + '</dd></dl>' +
+      (i.contact ? '<p>Need to change something? Email <a href="mailto:' + esc(i.contact) + '">' + esc(i.contact) + '</a>.</p>' : '') +
+      '<p class="small muted">Signed in as ' + esc(S.user.email) + ' · <a href="#" id="out">Sign out</a></p>');
+    bindOut();
+    bindTax(true);
   }
 
   // ---------- After sending ----------

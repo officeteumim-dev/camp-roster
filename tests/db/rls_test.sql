@@ -279,7 +279,7 @@ end $$; rollback;
 -- ---------- Who-sees-what table ----------
 do $$ begin
   assert (select count(*) from roles where camp_id = '00000000-0000-0000-0000-0000000000c1') = 6, 'six built-in roles';
-  assert (select count(*) from perm_items where camp_id = '00000000-0000-0000-0000-0000000000c1') = 12, 'twelve built-in items (with the daily report and applications)';
+  assert (select count(*) from perm_items where camp_id = '00000000-0000-0000-0000-0000000000c1') = 14, 'fourteen built-in items (with the daily report, applications, staff roster and tax forms)';
 end $$;
 
 -- Only the director edits the table; the director keeps full access.
@@ -586,6 +586,109 @@ do $$ begin
   assert (select disclosures ->> 'Which shul?' from families where id = '00000000-0000-0000-0000-0000000000f2') = 'Agudah', 'family answer kept';
   assert (select disclosures ->> 'Payment plan' from families where id = '00000000-0000-0000-0000-0000000000f2') = 'Pay in full', 'payment plan kept';
 end $$;
+rollback;
+
+
+-- ---------- Staff applications and the staff roster ----------
+begin;
+do $$ begin perform pg_temp.as_user('office@x.org'); end $$;
+select set_registration('00000000-0000-0000-0000-0000000000c1', 'staff', '{"enabled":true,"approval":false,"positions":["Lifeguard"," Waiter ",""],
+  "form":{"custom":[{"id":"cert01","section":"experience","label":"Lifeguard certificate?","type":"yesno"}]}}');
+do $$ begin
+  assert registration_info('camp-one', 'staff') -> 'positions' = '["Lifeguard","Waiter"]', 'positions saved, tidied';
+  assert (registration_info('camp-one', 'staff') ->> 'approval')::boolean, 'staff are always reviewed';
+  assert (registration_info('camp-one', 'camper') ->> 'open') = 'false', 'camper registration still closed';
+end $$;
+reset role;
+do $$ begin perform pg_temp.as_parent('teen@x.org', '00000000-0000-0000-0000-00000000aaa5'); end $$;
+do $$ declare aid uuid; begin
+  insert into applications (camp_id, kind, data, signature) values ('00000000-0000-0000-0000-0000000000c1', 'staff',
+    '{"first":"Avi","last":"Stein","phone":"(732) 555-0300","school":"Yeshiva","grade":"11th","positions":["Lifeguard","Waiter"],"sessions":["00000000-0000-0000-0000-0000000000e1"],
+      "father":{"first":"Shmuel","phone":"555"},"camper_experience":[{"camp":"Camp A","years":"2019-2022"}],"staff_experience":[{"camp":"Camp B","position":"Waiter","years":"2025"}],
+      "custom":{"cert01":"Yes"}}', 'Avi Stein') returning id into aid;
+  update applications set status = 'submitted' where id = aid;
+  assert (select status from applications where id = aid) = 'submitted', 'staff applications wait for review';
+  assert (select count(*) from staff_members) = 0, 'applicant cannot see the staff roster';
+end $$;
+reset role;
+do $$ begin perform pg_temp.as_user('coun@x.org'); end $$;
+do $$ begin
+  assert (select count(*) from staff_members) = 0;
+  begin insert into staff_members (camp_id, first_name) values ('00000000-0000-0000-0000-0000000000c1', 'X'); raise exception 'counselor added staff';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+do $$ begin perform pg_temp.as_user('office@x.org'); end $$;
+do $$ declare aid uuid; m uuid; r staff_members; begin
+  select id into aid from applications where kind = 'staff';
+  begin perform hire_staff_application(aid, '{}'); raise exception 'hired with no position'; exception when raise_exception then if sqlerrm not like 'Choose%' then raise; end if; end;
+  m := hire_staff_application(aid, array['Lifeguard']);
+  select * into r from staff_members where id = m;
+  assert r.first_name = 'Avi' and r.positions = '{Lifeguard}' and r.session_ids = '{00000000-0000-0000-0000-0000000000e1}' and r.email = 'teen@x.org', 'hired';
+  assert r.experience #>> '{camper,0,camp}' = 'Camp A' and r.experience #>> '{staff,0,position}' = 'Waiter', 'experience kept';
+  assert r.answers ->> 'Lifeguard certificate?' = 'Yes' and r.parents #>> '{father,first}' = 'Shmuel';
+  assert (select status from applications where id = aid) = 'accepted' and (select staff_member_id from applications where id = aid) = m;
+end $$;
+reset role;
+-- Next year, the same person applies again: matched as returning staff.
+set local role service_role;
+insert into applications (camp_id, kind, user_id, email, status, data, signature, submitted_at) values ('00000000-0000-0000-0000-0000000000c1', 'staff', '00000000-0000-0000-0000-00000000aaa5', 'teen@x.org', 'submitted', '{"first":"Avi","last":"Stein"}', 'Avi Stein', now());
+reset role;
+do $$ begin perform pg_temp.as_user('office@x.org'); end $$;
+do $$ declare aid uuid; m uuid; begin
+  select id into aid from applications where kind = 'staff' and status = 'submitted';
+  select id into m from staff_members;
+  assert (select why from staff_application_matches(aid) limit 1) like '%same email%', 'returning staff matched';
+  assert hire_staff_application(aid, array['Counselor'], m) = m, 'returning staff updated';
+  assert (select positions from staff_members where id = m) = '{Counselor}', 'with the new position';
+  insert into staff_members (camp_id, first_name, positions) values ('00000000-0000-0000-0000-0000000000c1', 'Hired outside the app', '{Kitchen staff}');
+end $$;
+rollback;
+
+
+-- ---------- Staff tax forms ----------
+begin;
+do $$ begin perform pg_temp.as_user('office@x.org'); end $$;
+select set_tax_setting('00000000-0000-0000-0000-0000000000c1', 'choice', 'apply');
+select set_registration('00000000-0000-0000-0000-0000000000c1', 'staff', '{"enabled":true}');
+do $$ begin assert registration_info('camp-one', 'staff') ->> 'tax_form' = 'choice', 'tax setting kept when the rest is saved'; end $$;
+reset role;
+set local role service_role;
+insert into applications (id, camp_id, kind, user_id, email, status, data) values
+  ('00000000-0000-0000-0000-00000000ab01', '00000000-0000-0000-0000-0000000000c1', 'staff', '00000000-0000-0000-0000-00000000aaa6', 'teen2@x.org', 'draft', '{"first":"Eli"}');
+reset role;
+do $$ begin perform pg_temp.as_parent('teen2@x.org', '00000000-0000-0000-0000-00000000aaa6'); end $$;
+do $$ begin
+  assert tax_upload_ok('00000000-0000-0000-0000-0000000000c1/00000000-0000-0000-0000-00000000ab01/w9.pdf'), 'applicant uploads to their own draft';
+  assert not tax_read_ok('00000000-0000-0000-0000-0000000000c1/00000000-0000-0000-0000-00000000ab01/w9.pdf'), 'but cannot read the bucket';
+end $$;
+reset role;
+do $$ begin perform pg_temp.as_parent('someone@x.org', '00000000-0000-0000-0000-00000000aaa2'); end $$;
+do $$ begin assert not tax_upload_ok('00000000-0000-0000-0000-0000000000c1/00000000-0000-0000-0000-00000000ab01/x.pdf'), 'not into someone else''s'; end $$;
+reset role;
+do $$ begin perform pg_temp.as_user('office@x.org'); end $$;
+do $$ begin assert not tax_read_ok('00000000-0000-0000-0000-0000000000c1/00000000-0000-0000-0000-00000000ab01/w9.pdf'), 'office cannot see tax forms by default'; end $$;
+reset role;
+do $$ begin perform pg_temp.as_user('fin@x.org'); end $$;
+do $$ begin assert tax_read_ok('00000000-0000-0000-0000-0000000000c1/00000000-0000-0000-0000-00000000ab01/w9.pdf'), 'finance can'; end $$;
+reset role;
+do $$ begin perform pg_temp.as_user('dir@x.org'); end $$;
+do $$ declare m uuid; begin
+  assert tax_read_ok('00000000-0000-0000-0000-0000000000c1/x/y.pdf'), 'director can';
+  update applications set status = 'submitted', data = data || '{"tax_form":{"type":"W-9","path":"00000000-0000-0000-0000-0000000000c1/00000000-0000-0000-0000-00000000ab01/w9.pdf","name":"w9.pdf"}}' where id = '00000000-0000-0000-0000-00000000ab01';
+  m := hire_staff_application('00000000-0000-0000-0000-00000000ab01', array['Waiter']);
+  assert (select tax_form ->> 'type' from staff_members where id = m) = 'W-9', 'tax form copied to the staff record';
+  perform set_tax_setting('00000000-0000-0000-0000-0000000000c1', 'w4', 'hired');
+end $$;
+reset role;
+do $$ begin perform pg_temp.as_parent('teen2@x.org', '00000000-0000-0000-0000-00000000aaa6'); end $$;
+do $$ begin
+  assert tax_upload_ok('00000000-0000-0000-0000-0000000000c1/00000000-0000-0000-0000-00000000ab01/w4.pdf'), 'hired applicant may upload when asked after hiring';
+  perform attach_tax_form('00000000-0000-0000-0000-00000000ab01', 'W-4', '00000000-0000-0000-0000-0000000000c1/00000000-0000-0000-0000-00000000ab01/w4.pdf', 'w4.pdf');
+  begin perform attach_tax_form('00000000-0000-0000-0000-00000000ab01', 'W-4', 'elsewhere/x/w4.pdf', 'w4.pdf'); raise exception 'outside path accepted'; exception when raise_exception then if sqlerrm <> 'bad file' then raise; end if; end;
+end $$;
+reset role;
+do $$ begin assert (select tax_form ->> 'type' from staff_members where application_id = '00000000-0000-0000-0000-00000000ab01') = 'W-4', 'staff record updated'; end $$;
 rollback;
 
 \echo 'ALL DATABASE TESTS PASSED'

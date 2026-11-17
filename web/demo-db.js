@@ -219,7 +219,40 @@
         emergency: [{ name: 'Rachel Weiss', relation: 'Aunt', phone: '(845) 555-0178' }], campers: [{ first: 'Ari', dob: '2014-11-30', gender: 'Male', grade: '6th', sessions: [s2.id] }] }),
       app('app-4', 'klein@example.com', 'draft', 2, { last_name: 'Klein', father: { first: 'Dov', email: 'klein@example.com' }, mother: {}, emergency: [{}], campers: [{ first: 'Eli' }] })
     ];
-    db.camps[0].settings = Object.assign({}, db.camps[0].settings, { registration: { camper: { enabled: true, intro: 'Welcome! Fill in one application for your family.', agreement: '' } } });
+    db.camps[0].settings = Object.assign({}, db.camps[0].settings, { registration: { camper: { enabled: true, intro: 'Welcome! Fill in one application for your family.', agreement: '' },
+      staff: { enabled: true, tax_form: 'choice', tax_when: 'apply', positions: ['Lifeguard', 'Canteen', 'Kitchen staff', 'Waiter', 'Counselor', 'Madrich', 'Leagues'] } } });
+    // Staff: some already on the roster, and a few applications.
+    var R = root.DemoSeed.demoRng(77), pick = function (a) { return a[Math.floor(R() * a.length)]; };
+    var firsts = ['Avi', 'Dovid', 'Eli', 'Moshe', 'Yosef', 'Shmuel', 'Chaim', 'Mendy', 'Yehuda', 'Aryeh', 'Baruch', 'Zevi', 'Nachum', 'Pinchas', 'Ari', 'Yaakov', 'Shimon', 'Gavriel'];
+    var lasts = ['Stein', 'Katz', 'Levine', 'Gold', 'Rosen', 'Weiss', 'Klein', 'Adler', 'Berger', 'Friedman', 'Hirsch', 'Kaplan', 'Schwartz', 'Feld'];
+    var jobs = [['Counselor', 14], ['Waiter', 6], ['Kitchen staff', 4], ['Lifeguard', 3], ['Canteen', 2], ['Madrich', 3], ['Leagues', 2]];
+    db.staff_members = [];
+    var n = 0;
+    jobs.forEach(function (j) {
+      for (var i = 0; i < j[1]; i++) {
+        n++;
+        var y = 2007 + Math.floor(R() * 4), first = pick(firsts), last = pick(lasts);
+        db.staff_members.push({ id: 'stf-' + n, camp_id: CAMP, application_id: null, first_name: first, last_name: last, date_of_birth: y + '-0' + (1 + Math.floor(R() * 9)) + '-1' + Math.floor(R() * 9), gender: 'Male', hebrew_name: null,
+          phone: '(732) 555-' + String(1000 + n).slice(-4), email: (first + '.' + last + n).toLowerCase() + '@example.com', address: n + ' Sample Ave', city: pick(['Lakewood', 'Brooklyn', 'Monsey', 'Passaic']), state: pick(['NJ', 'NY']), zip: '08701',
+          school: pick(['Yeshiva Ner Yisroel', 'Mesivta Ateres Yaakov', 'Yeshiva of Far Rockaway', 'Beis Medrash Govoha']), grade: pick(['11th', '12th', 'Beis medrash / post high school']),
+          positions: R() < 0.15 && j[0] !== 'Counselor' ? [j[0], 'Leagues'] : [j[0]], session_ids: R() < 0.6 ? [s1.id, s2.id] : [pick([s1.id, s2.id])],
+          parents: { father: { first: pick(firsts), phone: '(732) 555-' + String(2000 + n).slice(-4) } }, emergency_contacts: [pick(firsts) + ' ' + last + ', Uncle, (732) 555-' + String(3000 + n).slice(-4)],
+          experience: { camper: [{ camp: pick(['Camp Test Site', 'Camp Sameach', 'Camp Bnei Torah']), years: '2016-2020' }], staff: R() < 0.5 ? [{ camp: 'Camp Test Site', position: j[0], years: '2025' }] : [] },
+          answers: {}, notes: null, active: true, created_by: 'sample', created_at: ago(500), updated_at: ago(500) });
+      }
+    });
+    var st = function (id, email, status, hours, d) { var x = app(id, email, status, hours, d); x.kind = 'staff'; x.signature = status === 'draft' ? null : d.first + ' ' + d.last; return x; };
+    var back = db.staff_members[0];
+    db.applications.push(
+      st('sapp-1', 'yehuda.adler@example.com', 'submitted', 8, { first: 'Yehuda', last: 'Adler', dob: '2009-02-11', gender: 'Male', phone: '(845) 555-0110', email: 'yehuda.adler@example.com', school: 'Mesivta Ateres Yaakov', grade: '11th',
+        address: '22 Elm St', city: 'Monsey', state: 'NY', zip: '10952', positions: ['Lifeguard', 'Counselor'], sessions: [s1.id, s2.id], father: { first: 'Shlomo', phone: '(845) 555-0111' },
+        emergency: [{ name: 'Rivka Adler', relation: 'Mother', phone: '(845) 555-0112' }], camper_experience: [{ camp: 'Camp Sameach', years: '2018-2022' }], staff_experience: [{ camp: 'Camp Sameach', position: 'Junior counselor', years: '2025' }], tax_form: { type: 'W-4', path: 'practice/sample-w4.pdf', name: 'W-4 Yehuda Adler.pdf', uploaded_at: ago(8) } }),
+      st('sapp-2', 'nachum.feld@example.com', 'submitted', 30, { first: 'Nachum', last: 'Feld', dob: '2010-07-03', gender: 'Male', phone: '(732) 555-0177', email: 'nachum.feld@example.com', school: 'Yeshiva of Far Rockaway', grade: '10th',
+        positions: ['Waiter', 'Kitchen staff'], sessions: [s2.id], father: { first: 'Dov', phone: '(732) 555-0178' }, emergency: [{ name: 'Leah Feld', phone: '(732) 555-0179' }], no_camper_experience: true, no_staff_experience: true }),
+      // Returning staff: matched to their roster record by email.
+      st('sapp-3', back.email, 'submitted', 50, { first: back.first_name, last: back.last_name, phone: back.phone, email: back.email, school: back.school, grade: back.grade, positions: ['Counselor'], sessions: [s1.id], father: back.parents.father,
+        emergency: [{ name: 'Uncle', phone: '(732) 555-0100' }], camper_experience: back.experience.camper, staff_experience: [{ camp: 'Camp Test Site', position: back.positions[0], years: '2025' }] })
+    );
   }
 
   // ---------- Statuses (the same rules as the database) ----------
@@ -351,12 +384,14 @@
     ['imports', 'Camp Flow imports', 'Import history. Change: import a report by hand'], ['setup', 'Sessions and required forms', 'Change: add sessions and dates, turn required forms on or off'],
     ['activity', 'Activity log', 'Who did what, and who opened which form'],
     ['reports', 'Daily registration report', 'New registrations each morning, and who it is emailed to'],
-    ['applications', 'Applications', 'Online applications. Change: accept, waitlist or decline them, and set up online registration']];
+    ['applications', 'Applications', 'Online applications. Change: accept, waitlist or decline them, and set up online registration'],
+    ['staff_roster', 'Staff roster', 'Everyone working at camp: contacts, positions, sessions. Change: hire, add and edit staff'],
+    ['tax_forms', 'Staff tax forms', 'W-4 and W-9 forms staff upload (they include Social Security numbers). Change: add or remove them']];
   // [role, item, see, change]: tests/demo.test.mjs checks these match the database migration.
   var PERM_DEFAULTS = [['office', 'roster', 1, 1], ['office', 'parent_contacts', 1, 1], ['office', 'alerts', 1, 0], ['office', 'health_forms', 1, 0], ['office', 'form_status', 1, 1],
     ['office', 'bunks', 1, 1], ['office', 'imports', 1, 1], ['office', 'setup', 1, 1], ['finance', 'roster', 1, 0], ['finance', 'parent_contacts', 1, 0], ['finance', 'money', 1, 0],
     ['infirmary', 'roster', 1, 0], ['infirmary', 'parent_contacts', 1, 0], ['infirmary', 'alerts', 1, 1], ['infirmary', 'health_forms', 1, 1], ['infirmary', 'form_status', 1, 0], ['infirmary', 'bunks', 1, 0],
-    ['head_counselor', 'roster', 1, 0], ['head_counselor', 'alerts', 1, 0], ['head_counselor', 'bunks', 1, 1], ['counselor', 'roster', 1, 0], ['counselor', 'alerts', 1, 0], ['counselor', 'bunks', 1, 0], ['office', 'reports', 1, 0], ['office', 'applications', 1, 1]];
+    ['head_counselor', 'roster', 1, 0], ['head_counselor', 'alerts', 1, 0], ['head_counselor', 'bunks', 1, 1], ['counselor', 'roster', 1, 0], ['counselor', 'alerts', 1, 0], ['counselor', 'bunks', 1, 0], ['office', 'reports', 1, 0], ['office', 'applications', 1, 1], ['office', 'staff_roster', 1, 1], ['finance', 'tax_forms', 1, 0]];
   function seedAccess(db) {
     db.roles = ROLE_DEFAULTS.map(function (r, i) { return { camp_id: CAMP, key: r[0], label: r[1], scope: r[2], builtin: true, sort: i + 1 }; });
     db.perm_items = ITEM_DEFAULTS.map(function (r, i) { return { camp_id: CAMP, key: r[0], label: r[1], help: r[2], kind: 'builtin', sort: i + 1 }; });
@@ -420,6 +455,7 @@
         case 'audit_log': return canAny('activity', 'see');
         case 'daily_reports': return canAny('reports', 'see');
         case 'applications': return canAny('applications', 'see');
+        case 'staff_members': return canAny('staff_roster', 'see');
         default: return false;
       }
     }
@@ -436,6 +472,7 @@
         case 'camper_health': return canCamper(row.camper_id, 'alerts', 'change');
         case 'camper_fields': return canCamper(row.camper_id, row.item_key, 'change');
         case 'applications': return op === 'update' && canAny('applications', 'change');
+        case 'staff_members': return op === 'delete' ? me.role === 'director' : canAny('staff_roster', 'change');
         default: return false;
       }
     }
@@ -597,9 +634,45 @@
         save();
         return fam;
       },
+      staff_application_matches: function (a) {
+        if (!canAny('applications', 'see')) notAllowed();
+        var ap = db.applications.find(function (x) { return x.id === a.p_id; }); if (!ap) return [];
+        var d = ap.data, digits = function (p) { return String(p || '').replace(/\D/g, '').slice(-10); };
+        return db.staff_members.map(function (m) {
+          var why = [];
+          if (m.email && (m.email === ap.email || m.email === String(d.email || '').toLowerCase())) why.push('same email');
+          if (digits(d.phone).length === 10 && digits(m.phone) === digits(d.phone)) why.push('same phone');
+          if ((m.first_name || '').toLowerCase() === String(d.first || '').toLowerCase() && (m.last_name || '').toLowerCase() === String(d.last || '').toLowerCase()) why.push('same name');
+          return why.length ? { member_id: m.id, name: (m.first_name + ' ' + m.last_name).trim(), positions: (m.positions || []).join(', '), why: why.join(', ') } : null;
+        }).filter(Boolean).slice(0, 10);
+      },
+      hire_staff_application: function (a) {
+        if (!canAny('applications', 'change')) notAllowed();
+        var ap = db.applications.find(function (x) { return x.id === a.p_id; });
+        if (!ap || ap.kind !== 'staff' || ['submitted', 'waitlisted'].indexOf(ap.status) < 0) throw new Error('This application has already been decided.');
+        var pos = (a.p_positions || []).filter(Boolean); if (!pos.length) throw new Error('Choose at least one position.');
+        var d = ap.data, now = new Date().toISOString();
+        var rec = { application_id: ap.id, phone: d.phone || null, email: (d.email || ap.email || '').toLowerCase(), address: d.address || null, city: d.city || null, state: d.state || null, zip: d.zip || null, school: d.school || null, grade: d.grade || null,
+          positions: pos, session_ids: (d.sessions || []).filter(function (x) { return db.sessions.some(function (q) { return q.id === x; }); }),
+          parents: { father: d.father || {}, mother: d.mother || {} }, emergency_contacts: (d.emergency || []).filter(function (e) { return e && e.name; }).map(function (e) { return [e.name, e.relation, e.phone].filter(Boolean).join(', '); }),
+          experience: { camper: d.camper_experience || [], staff: d.staff_experience || [] }, notes: d.notes || null, active: true, updated_at: now };
+        var m;
+        if (a.p_member) { m = db.staff_members.find(function (x) { return x.id === a.p_member; }); Object.assign(m, rec); }
+        else { m = Object.assign({ id: 'stf-hired-' + ap.id, camp_id: CAMP, first_name: d.first, last_name: d.last || '', date_of_birth: d.dob || null, gender: d.gender || null, hebrew_name: d.hebrew_name || null, answers: {}, created_by: email || 'you', created_at: now }, rec); db.staff_members.push(m); }
+        if (d.tax_form && d.tax_form.path) m.tax_form = d.tax_form;
+        Object.assign(ap, { status: 'accepted', staff_member_id: m.id, decided_by: email || 'you', decided_at: now });
+        save(); return m.id;
+      },
+      set_tax_setting: function (a) {
+        if (!canAny('applications', 'change')) notAllowed();
+        var c = db.camps[0]; c.settings = Object.assign({}, c.settings); c.settings.registration = Object.assign({}, c.settings.registration);
+        c.settings.registration.staff = Object.assign({}, c.settings.registration.staff, { tax_form: a.p_form, tax_when: a.p_when }); save(); return null;
+      },
       set_registration: function (a) {
         if (!canAny('applications', 'change')) notAllowed();
-        var v = a.p_settings, out = { enabled: !!v.enabled, approval: v.approval !== false };
+        var v = a.p_settings, out = { enabled: !!v.enabled, approval: a.p_kind === 'staff' ? true : v.approval !== false };
+        if (a.p_kind === 'staff') { var prev = ((db.camps[0].settings || {}).registration || {}).staff || {}; if (prev.tax_form) out.tax_form = prev.tax_form; if (prev.tax_when) out.tax_when = prev.tax_when; }
+        if (a.p_kind === 'staff' && Array.isArray(v.positions)) out.positions = v.positions.map(function (x) { return String(x).trim(); }).filter(Boolean);
         ['opens_on', 'closes_on', 'intro', 'agreement'].forEach(function (k) { if (v[k] && String(v[k]).trim()) out[k] = String(v[k]).trim(); });
         if (Array.isArray(v.sessions)) out.sessions = v.sessions;
         var form = v.form || {};
@@ -608,7 +681,7 @@
           show: (v.payment || {}).show === 'after_send' ? 'after_send' : 'after_accept' };
         var c = db.camps[0]; c.settings = Object.assign({}, c.settings); c.settings.registration = Object.assign({}, c.settings.registration); c.settings.registration[a.p_kind] = out;
         // Camper questions become camper details.
-        out.form.custom.filter(function (q) { return q.section === 'camper'; }).forEach(function (q) {
+        out.form.custom.filter(function (q) { return a.p_kind === 'camper' && q.section === 'camper'; }).forEach(function (q) {
           var key = 'f_reg_' + q.id, it = db.perm_items.find(function (i) { return i.key === key; });
           if (it) it.label = q.label.slice(0, 80);
           else {

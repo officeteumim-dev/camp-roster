@@ -266,6 +266,7 @@
     money: '<path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/>',
     imports: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
     settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+    staffroster: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6"/><path d="M22 11h-6"/>',
     applications: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="m9 15 2 2 4-4"/>',
     reports: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 18v-2"/><path d="M12 18v-4"/><path d="M16 18v-6"/>',
     activity: '<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/>',
@@ -281,6 +282,7 @@
     ['mybunk', 'My bunk', 'Campers', function () { return can('bunks') && !wide() && S.myBunks.length; }],
     ['money', 'Money', 'Office', function () { return can('money'); }],
     ['imports', 'Imports', 'Office', function () { return can('imports'); }],
+    ['staffroster', 'Staff roster', 'Campers', function () { return can('staff_roster'); }],
     ['applications', 'Applications', 'Office', function () { return can('applications'); }],
     ['reports', 'Reports', 'Office', function () { return can('reports'); }],
     ['settings', 'Settings', 'Setup', function () { return isDirector(); }],
@@ -369,13 +371,14 @@
     var allowed = allowedPages();
     var page = h[0] || (allowed[0] && allowed[0][0]);
     if (page === 'camper' && can('roster')) return camperPage(h[1]);
-    if (page === 'applications' && h[1] && can('applications')) { markPage('applications', 'Application'); return h[1] === 'setup' ? registrationSetup() : applicationPage(h[1]); }
+    if (page === 'staffroster' && h[1] && can('staff_roster')) { markPage('staffroster', 'Staff member'); return staffMemberPage(h[1]); }
+    if (page === 'applications' && h[1] && can('applications')) { markPage('applications', 'Application'); return h[1] === 'setup' ? registrationSetup('camper') : h[1] === 'setup-staff' ? registrationSetup('staff') : applicationPage(h[1]); }
     if (page === 'reports' && h[1] && can('reports')) { markPage('reports', 'Report'); return reportsPage(h[1]); }
     if (page === 'settings' && h[1] === 'access' && isDirector()) { markPage('settings', 'Who can see what'); return accessPage(); }
     if (!allowed.some(function (p) { return p[0] === page; })) page = allowed[0] ? allowed[0][0] : null;
     markPage(page);
     if (!page) { $main.innerHTML = '<div class="card">Nothing to show for your role yet.</div>'; return; }
-    ({ roster: rosterPage, forms: formsPage, bunks: bunksPage, mybunk: myBunkPage, money: moneyPage, imports: importsPage, reports: reportsPage, applications: applicationsPage, requests: requestsPage, settings: settingsPage, activity: activityPage })[page]();
+    ({ roster: rosterPage, forms: formsPage, bunks: bunksPage, mybunk: myBunkPage, money: moneyPage, imports: importsPage, reports: reportsPage, applications: applicationsPage, staffroster: staffRosterPage, requests: requestsPage, settings: settingsPage, activity: activityPage })[page]();
   }
   // Highlights the current page in the menu and bottom bar, and shows its name in the top bar.
   function markPage(page, title) {
@@ -1051,41 +1054,166 @@
   }
 
 
+
+  // ---------- Staff roster: everyone working at camp (not app logins) ----------
+  var ageAt = function (dob, on) { if (!dob) return ''; var b = new Date(dob + 'T12:00:00'), d = on ? new Date(on + 'T12:00:00') : new Date(), a = d.getFullYear() - b.getFullYear(); if (d.getMonth() < b.getMonth() || (d.getMonth() === b.getMonth() && d.getDate() < b.getDate())) a--; return a; };
+  var expText = function (list, cols) { return (list || []).filter(function (x) { return x && x.camp; }).map(function (x) { return cols.map(function (c) { return x[c]; }).filter(Boolean).join(', '); }).join('; '); };
+  var sessName = function (id) { var q = S.sessions.find(function (y) { return y.id === id; }); return q ? q.name : ''; };
+  var STAFF_COLS = [
+    ['name', 'Name', function (m) { return (m.first_name + ' ' + m.last_name).trim(); }],
+    ['positions', 'Positions', function (m) { return (m.positions || []).join(', '); }],
+    ['sessions', 'Sessions', function (m) { return (m.session_ids || []).map(sessName).filter(Boolean).join(', '); }],
+    ['age', 'Age', function (m) { var first = (S.sessions.find(function (q) { return q.starts_on; }) || {}).starts_on; return ageAt(m.date_of_birth, first); }, 'num'],
+    ['dob', 'Date of birth', function (m) { return m.date_of_birth || ''; }],
+    ['gender', 'Gender', function (m) { return m.gender || ''; }],
+    ['phone', 'Phone', function (m) { return m.phone || ''; }],
+    ['email', 'Email', function (m) { return m.email || ''; }],
+    ['school', 'School', function (m) { return m.school || ''; }],
+    ['grade', 'Grade / year', function (m) { return m.grade || ''; }],
+    ['city', 'City', function (m) { return [m.city, m.state].filter(Boolean).join(', '); }],
+    ['address', 'Address', function (m) { return [m.address, m.city, m.state, m.zip].filter(Boolean).join(', '); }],
+    ['parents', 'Parents', function (m) { var p = m.parents || {}; return ['father', 'mother'].map(function (w) { var x = p[w] || {}; return x.first ? x.first + (x.phone ? ' ' + x.phone : '') : ''; }).filter(Boolean).join('; '); }],
+    ['emergency', 'Emergency contact', function (m) { return (m.emergency_contacts || []).join('; '); }],
+    ['campexp', 'As a camper', function (m) { return expText((m.experience || {}).camper, ['camp', 'years']); }],
+    ['staffexp', 'Staff experience', function (m) { return expText((m.experience || {}).staff, ['camp', 'position', 'years']); }],
+    ['hebrew', 'Hebrew name', function (m) { return m.hebrew_name || ''; }]
+  ];
+  var STAFF_DEFAULT = ['name', 'positions', 'sessions', 'age', 'phone', 'email', 'school'];
+  function staffRosterPage() {
+    var R = S.staffView = S.staffView || { q: '', pos: '', sess: '', sort: 'name', dir: 1, cols: STAFF_DEFAULT.slice(), gone: false };
+    $main.innerHTML = '<p class="muted">Loading…</p>';
+    DB.from('staff_members').select('*').eq('camp_id', S.camp.id).order('last_name').order('first_name').limit(5000).then(function (r) {
+      var all = must(r) || [];
+      var custom = {}; all.forEach(function (m) { Object.keys(m.answers || {}).forEach(function (k) { custom[k] = 1; }); });
+      var colsAll = STAFF_COLS.concat(Object.keys(custom).map(function (k) { return ['a:' + k, k, function (m) { return (m.answers || {})[k] || ''; }]; }));
+      var cols = R.cols.map(function (k) { return colsAll.find(function (c) { return c[0] === k; }); }).filter(Boolean);
+      var positions = {}; all.forEach(function (m) { (m.positions || []).forEach(function (p) { positions[p] = (positions[p] || 0) + 1; }); });
+      var q = R.q.toLowerCase();
+      var rows = all.filter(function (m) {
+        if (!R.gone && !m.active) return false; if (R.gone && m.active) return false;
+        if (R.pos && (m.positions || []).indexOf(R.pos) < 0) return false;
+        if (R.sess && (m.session_ids || []).indexOf(R.sess) < 0) return false;
+        return !q || colsAll.some(function (c) { return String(c[2](m)).toLowerCase().indexOf(q) >= 0; });
+      });
+      var sc = colsAll.find(function (c) { return c[0] === R.sort; }) || colsAll[0];
+      rows.sort(function (a, b) { var x = sc[2](a), y = sc[2](b); if (sc[3] === 'num') { x = x === '' ? 1e9 : +x; y = y === '' ? 1e9 : +y; return (x - y) * R.dir; } return String(x).localeCompare(String(y)) * R.dir; });
+      var html = '<div class="row" style="justify-content:space-between;flex-wrap:wrap"><h1 style="margin:0">Staff roster</h1><span class="row noprint">' + (can('staff_roster', 'change') ? '<button class="primary" id="addstaff">+ Add a staff member</button>' : '') + '<button id="scsv">Export these ' + rows.length + '</button><button data-print>Print</button></span></div>' +
+        '<p class="muted small">Everyone working at camp. Hired staff applications are added here; add others by hand.</p>' +
+        '<div class="row noprint" style="flex-wrap:wrap;gap:10px;margin:10px 0"><input type="search" id="sq" placeholder="Search" value="' + esc(R.q) + '" style="max-width:220px">' +
+        '<select id="spos" style="width:auto;max-width:260px"><option value="">All positions</option>' + Object.keys(positions).sort().map(function (p) { return '<option' + (R.pos === p ? ' selected' : '') + ' value="' + esc(p) + '">' + esc(p) + ' (' + positions[p] + ')</option>'; }).join('') + '</select>' +
+        '<select id="ssess" style="width:auto;max-width:260px"><option value="">All sessions</option>' + S.sessions.map(function (x) { return '<option value="' + x.id + '"' + (R.sess === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select>' +
+        '<label class="check" style="margin:0"><input type="checkbox" id="sgone"' + (R.gone ? ' checked' : '') + '><span>Show past staff instead</span></label>' +
+        '<details class="colpick"><summary>Columns</summary><div>' + colsAll.map(function (c) { return '<label class="check"><input type="checkbox" data-scol="' + esc(c[0]) + '"' + (R.cols.indexOf(c[0]) >= 0 ? ' checked' : '') + '><span>' + esc(c[1]) + '</span></label>'; }).join('') + '</div></details></div>' +
+        (rows.length ? '<div class="scroll"><table class="grid"><thead><tr>' + cols.map(function (c) { return '<th><button class="sortbtn" data-ssort="' + esc(c[0]) + '">' + esc(c[1]) + (R.sort === c[0] ? (R.dir > 0 ? ' ▲' : ' ▼') : '') + '</button></th>'; }).join('') + '</tr></thead><tbody>' +
+          rows.map(function (m) { return '<tr class="click" tabindex="0" data-id="' + m.id + '">' + cols.map(function (c, i) { var v = c[2](m); return '<td>' + (i === 0 ? '<a href="#staffroster/' + m.id + '">' + esc(v) + '</a>' : esc(v)) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>'
+          : '<div class="card"><p class="muted" style="margin:0">' + (all.length ? 'Nobody matches.' : 'No staff yet. Hire from staff applications, or add someone here.') + '</p></div>');
+      $main.innerHTML = html;
+      var redraw = function () { staffRosterPage(); };
+      document.getElementById('sq').oninput = function (e) { R.q = e.target.value; clearTimeout(R.t); R.t = setTimeout(function () { redraw(); var el = document.getElementById('sq'); el.focus(); el.setSelectionRange(el.value.length, el.value.length); }, 250); };
+      document.getElementById('spos').onchange = function (e) { R.pos = e.target.value; redraw(); };
+      document.getElementById('ssess').onchange = function (e) { R.sess = e.target.value; redraw(); };
+      document.getElementById('sgone').onchange = function (e) { R.gone = e.target.checked; redraw(); };
+      [].forEach.call($main.querySelectorAll('[data-scol]'), function (cb) { cb.onchange = function () { R.cols = [].filter.call($main.querySelectorAll('[data-scol]'), function (x) { return x.checked; }).map(function (x) { return x.dataset.scol; }); if (!R.cols.length) R.cols = ['name']; redraw(); }; });
+      [].forEach.call($main.querySelectorAll('[data-ssort]'), function (b) { b.onclick = function () { if (R.sort === b.dataset.ssort) R.dir = -R.dir; else { R.sort = b.dataset.ssort; R.dir = 1; } redraw(); }; });
+      [].forEach.call($main.querySelectorAll('tr.click'), function (tr) { tr.onclick = function (e) { if (e.target.closest('a')) return; location.hash = 'staffroster/' + tr.dataset.id; }; tr.onkeydown = function (e) { if (e.key === 'Enter') location.hash = 'staffroster/' + tr.dataset.id; }; });
+      var add = document.getElementById('addstaff'); if (add) add.onclick = function () { location.hash = 'staffroster/new'; };
+      document.getElementById('scsv').onclick = function () {
+        var qv = function (v) { v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+        var lines = [cols.map(function (c) { return qv(c[1]); }).join(',')].concat(rows.map(function (m) { return cols.map(function (c) { return qv(c[2](m)); }).join(','); }));
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob(['﻿' + lines.join('\n')], { type: 'text/csv' }));
+        a.download = 'staff' + (R.pos ? '-' + R.pos.replace(/[^A-Za-z0-9]+/g, '_') : '') + '-' + new Date().toISOString().slice(0, 10) + '.csv';
+        a.click();
+      };
+    }).catch(fail);
+  }
+  function staffMemberPage(id) {
+    var isNew = id === 'new';
+    (isNew ? Promise.resolve({ data: { first_name: '', last_name: '', positions: [], session_ids: [], active: true, parents: {}, experience: {}, answers: {}, emergency_contacts: [] } }) : DB.from('staff_members').select('*').eq('id', id).maybeSingle()).then(function (r) {
+      var m = must(r);
+      if (!m) { $main.innerHTML = '<p><a href="#staffroster">← Staff roster</a></p><div class="card">Not found.</div>'; return; }
+      var edit = can('staff_roster', 'change');
+      var known = ((((S.camp.settings || {}).registration || {}).staff || {}).positions || window.RegForm.POSITIONS).slice();
+      (m.positions || []).forEach(function (p) { if (known.indexOf(p) < 0) known.push(p); });
+      var inp = function (k, label, v, type) { return '<label class="field">' + label + '<input type="' + (type || 'text') + '" data-m="' + k + '" value="' + esc(v || '') + '"' + (edit ? '' : ' disabled') + ' maxlength="160"></label>'; };
+      var row = function (k, v) { return v ? '<tr><th style="width:170px">' + esc(k) + '</th><td>' + v + '</td></tr>' : ''; };
+      var p = m.parents || {}, par = function (w) { var x = p[w] || {}; return x.first ? esc([x.first, x.phone, x.email].filter(Boolean).join(' · ')) : ''; };
+      $main.innerHTML = '<p class="noprint"><a href="#staffroster">← Staff roster</a></p><h1>' + (isNew ? 'Add a staff member' : esc((m.first_name + ' ' + m.last_name).trim())) + (!m.active ? ' <span class="chip none">Past staff</span>' : '') + '</h1>' +
+        '<form id="smf" class="card"><div class="row2x">' + inp('first_name', 'First name', m.first_name) + inp('last_name', 'Last name', m.last_name) + inp('phone', 'Phone', m.phone, 'tel') + inp('email', 'Email', m.email, 'email') +
+        inp('date_of_birth', 'Date of birth', m.date_of_birth, 'date') + inp('school', 'School', m.school) + inp('grade', 'Grade / year', m.grade) + inp('hebrew_name', 'Hebrew name', m.hebrew_name) + '</div>' +
+        '<fieldset class="cols"><legend>Positions</legend><div class="row" style="flex-wrap:wrap;gap:4px 16px">' + known.map(function (x) { return '<label class="check"><input type="checkbox" data-mpos value="' + esc(x) + '"' + ((m.positions || []).indexOf(x) >= 0 ? ' checked' : '') + (edit ? '' : ' disabled') + '><span>' + esc(x) + '</span></label>'; }).join('') + '</div></fieldset>' +
+        (S.sessions.length ? '<fieldset class="cols"><legend>Sessions</legend><div class="row" style="flex-wrap:wrap;gap:4px 16px">' + S.sessions.map(function (x) { return '<label class="check"><input type="checkbox" data-msess value="' + x.id + '"' + ((m.session_ids || []).indexOf(x.id) >= 0 ? ' checked' : '') + (edit ? '' : ' disabled') + '><span>' + esc(x.name) + '</span></label>'; }).join('') + '</div></fieldset>' : '') +
+        '<label class="field">Notes<textarea data-m="notes" rows="2" maxlength="2000"' + (edit ? '' : ' disabled') + '>' + esc(m.notes || '') + '</textarea></label>' +
+        (edit ? '<div class="row" style="flex-wrap:wrap"><button class="primary">' + (isNew ? 'Add' : 'Save') + '</button>' + (!isNew ? '<button type="button" id="mactive">' + (m.active ? 'No longer on staff' : 'Back on staff') + '</button>' : '') + (!isNew && isDirector() ? '<button type="button" id="mdel" class="danger">Delete</button>' : '') + '</div>' : '') + '</form>' +
+        (isNew ? '' : '<div class="card"><table class="kv">' + row('Address', esc([m.address, m.city, [m.state, m.zip].filter(Boolean).join(' ')].filter(Boolean).join(', '))) + row('Gender', esc(m.gender || '')) +
+          row('Father', par('father')) + row('Mother', par('mother')) + row('Emergency contact', esc((m.emergency_contacts || []).join('; '))) +
+          row('As a camper', esc(expText((m.experience || {}).camper, ['camp', 'years']))) + row('Staff experience', esc(expText((m.experience || {}).staff, ['camp', 'position', 'years']))) +
+          Object.keys(m.answers || {}).map(function (k) { return row(k, esc(m.answers[k])); }).join('') +
+          taxRow(m.tax_form, row) +
+          row('Application', m.application_id && can('applications') ? '<a href="#applications/' + m.application_id + '">See the application</a>' : '') + '</table></div>');
+      bindTaxView();
+      if (!edit) return;
+      var vals = function () {
+        var o = {}; [].forEach.call($main.querySelectorAll('[data-m]'), function (el) { o[el.dataset.m] = el.value.trim() || null; });
+        o.first_name = o.first_name || ''; o.last_name = o.last_name || ''; if (o.email) o.email = o.email.toLowerCase();
+        o.positions = [].filter.call($main.querySelectorAll('[data-mpos]'), function (x) { return x.checked; }).map(function (x) { return x.value; });
+        o.session_ids = [].filter.call($main.querySelectorAll('[data-msess]'), function (x) { return x.checked; }).map(function (x) { return x.value; });
+        return o;
+      };
+      document.getElementById('smf').onsubmit = function (e) {
+        e.preventDefault();
+        var o = vals(); if (!o.first_name) return toast('Fill in a first name.');
+        o.updated_at = new Date().toISOString();
+        (isNew ? DB.from('staff_members').insert(Object.assign({ camp_id: S.camp.id, created_by: S.user.email }, o)).select().single() : DB.from('staff_members').update(o).eq('id', id).select().single())
+          .then(must).then(function (row2) { toast(isNew ? 'Added to the staff roster' : 'Saved'); location.hash = isNew && row2 && row2.id ? '#staffroster/' + row2.id : '#staffroster'; }).catch(fail);
+      };
+      var act = document.getElementById('mactive'); if (act) act.onclick = function () { DB.from('staff_members').update({ active: !m.active, updated_at: new Date().toISOString() }).eq('id', id).then(must).then(function () { toast(m.active ? 'Moved to past staff' : 'Back on staff'); staffMemberPage(id); }).catch(fail); };
+      var del = document.getElementById('mdel'); if (del) del.onclick = function () { if (confirm('Delete ' + m.first_name + ' from the staff roster? This can\'t be undone. ("No longer on staff" keeps their record.)')) DB.from('staff_members').delete().eq('id', id).then(must).then(function () { toast('Deleted'); location.hash = '#staffroster'; }).catch(fail); };
+    }).catch(fail);
+  }
+
   // ---------- Online applications ----------
   var APP_STATUS = { submitted: ['To review', 'warn'], waitlisted: ['Waiting list', 'none'], accepted: ['Accepted', 'good'], declined: ['Declined', 'bad'], draft: ['Not sent yet', 'none'], withdrawn: ['Withdrawn', 'none'] };
   function countApplications() {
     if (!can('applications')) return;
-    DB.from('applications').select('id').eq('camp_id', S.camp.id).eq('kind', 'camper').eq('status', 'submitted').limit(2000).then(function (r) {
+    DB.from('applications').select('id').eq('camp_id', S.camp.id).eq('status', 'submitted').limit(2000).then(function (r) {
       var n = (r.data || []).length; if (n !== S.appsWaiting) { S.appsWaiting = n; drawTop(); }
     });
   }
-  function regLink() { return location.origin + '/register.html?camp=' + encodeURIComponent(S.camp.slug); }
+  function regLink(kind) { return location.origin + '/register.html?camp=' + encodeURIComponent(S.camp.slug) + (kind === 'staff' ? '&kind=staff' : ''); }
   function kidLine(k, d) {
     var sname = function (id) { var x = S.sessions.find(function (q) { return q.id === id; }); return x ? x.name : ''; };
     return esc(k.first + ' ' + (k.last || d.last_name || '')) + (k.grade ? ' <span class="muted">' + esc(k.grade) + '</span>' : '') + ((k.sessions || []).length ? ' <span class="small muted">· ' + esc(k.sessions.map(sname).filter(Boolean).join(' & ')) + '</span>' : '');
   }
   function applicationsPage() {
-    var tab = S.appTab || 'submitted';
+    var tab = S.appTab || 'submitted', kind = S.appKind || 'camper', staff = kind === 'staff';
     $main.innerHTML = '<p class="muted">Loading…</p>';
-    DB.from('applications').select('*').eq('camp_id', S.camp.id).eq('kind', 'camper').order('submitted_at', { ascending: false, nullsFirst: false }).order('updated_at', { ascending: false }).limit(2000).then(function (r) {
-      var all = must(r) || [], reg = ((S.camp.settings || {}).registration || {}).camper || {};
+    DB.from('applications').select('*').eq('camp_id', S.camp.id).order('submitted_at', { ascending: false, nullsFirst: false }).order('updated_at', { ascending: false }).limit(4000).then(function (r) {
+      var every = must(r) || [], all = every.filter(function (a) { return a.kind === kind; }), reg = ((S.camp.settings || {}).registration || {})[kind] || {};
       var counts = {}; all.forEach(function (a) { counts[a.status] = (counts[a.status] || 0) + 1; });
-      S.appsWaiting = counts.submitted || 0; drawTop();
+      var waiting = function (k) { return every.filter(function (a) { return a.kind === k && a.status === 'submitted'; }).length; };
+      S.appsWaiting = waiting('camper') + waiting('staff'); drawTop();
       var list = all.filter(function (a) { return a.status === tab; });
-      var tabs = ['submitted', 'waitlisted', 'accepted', 'declined', 'draft'].map(function (t) { return '<button class="' + (t === tab ? 'primary' : '') + '" data-tab="' + t + '">' + APP_STATUS[t][0] + ' (' + (counts[t] || 0) + ')</button>'; }).join('');
-      var openTxt = reg.enabled ? 'Online registration is <strong>on</strong>' + (reg.opens_on ? ' from ' + esc(reg.opens_on) : '') + (reg.closes_on ? ' until ' + esc(reg.closes_on) : '') + '.' : 'Online registration is <strong>off</strong>: parents can\'t apply yet. Camp Flow keeps working as it does now.';
-      $main.innerHTML = '<h1>Applications</h1><div class="card"><p style="margin-top:0">' + openTxt + '</p>' +
-        (reg.enabled && S.demo ? '<p class="small muted">In ' + DEMO.NAME + ' these are sample applications; in your own camp parents apply on your registration page.</p>' : '') + (reg.enabled && !S.demo ? '<p class="small">Parents apply at <a href="' + esc(regLink()) + '" target="_blank" rel="noopener">' + esc(regLink()) + '</a> <button id="copyreg">Copy link</button></p>' : '') +
-        (can('applications', 'change') ? '<a class="btn" href="#applications/setup">Set up online registration</a>' : '') + '</div>' +
+      var kinds = '<div class="seg noprint">' + [['camper', 'Campers'], ['staff', 'Staff']].map(function (k) { var n = waiting(k[0]); return '<button class="' + (k[0] === kind ? 'primary' : '') + '" data-kind="' + k[0] + '">' + k[1] + (n ? ' <span class="chip warn">' + n + '</span>' : '') + '</button>'; }).join('') + '</div>';
+      var tabs = ['submitted', 'waitlisted', 'accepted', 'declined', 'draft'].map(function (t) { return '<button class="' + (t === tab ? 'primary' : '') + '" data-tab="' + t + '">' + (staff && t === 'accepted' ? 'Hired' : APP_STATUS[t][0]) + ' (' + (counts[t] || 0) + ')</button>'; }).join('');
+      var what = staff ? 'Staff applications' : 'Online registration';
+      var openTxt = reg.enabled ? what + ' is <strong>on</strong>' + (reg.opens_on ? ' from ' + esc(reg.opens_on) : '') + (reg.closes_on ? ' until ' + esc(reg.closes_on) : '') + '.' : what + ' is <strong>off</strong>: nobody can apply' + (staff ? ' to work at camp' : '') + ' yet.' + (staff ? '' : ' Camp Flow keeps working as it does now.');
+      var head = staff ? '<th>Name</th><th>Positions wanted</th><th>School</th><th>Email</th>' : '<th>Family</th><th>Campers</th><th>Parent email</th>';
+      $main.innerHTML = '<h1>Applications</h1>' + kinds + '<div class="card"><p style="margin-top:0">' + openTxt + '</p>' +
+        (reg.enabled && S.demo ? '<p class="small muted">In ' + DEMO.NAME + ' these are sample applications; in your own camp people apply on your registration page.</p>' : '') +
+        (reg.enabled && !S.demo ? '<p class="small">Apply at <a href="' + esc(regLink(kind)) + '" target="_blank" rel="noopener">' + esc(regLink(kind)) + '</a> <button id="copyreg">Copy link</button></p>' : '') +
+        (can('applications', 'change') ? '<a class="btn" href="#applications/' + (staff ? 'setup-staff' : 'setup') + '">Set up ' + (staff ? 'staff applications' : 'online registration') + '</a>' : '') + '</div>' +
         '<div class="row noprint" style="flex-wrap:wrap;margin:14px 0">' + tabs + '</div>' +
-        (list.length ? '<div class="scroll"><table class="grid"><thead><tr><th>Family</th><th>Campers</th><th>Parent email</th><th>' + (tab === 'draft' ? 'Last saved' : 'Sent') + '</th></tr></thead><tbody>' + list.map(function (a) {
+        (list.length ? '<div class="scroll"><table class="grid"><thead><tr>' + head + '<th>' + (tab === 'draft' ? 'Last saved' : 'Sent') + '</th></tr></thead><tbody>' + list.map(function (a) {
           var d = a.data || {};
+          if (staff) return '<tr><td><a href="#applications/' + a.id + '"><strong>' + esc([d.first, d.last].filter(Boolean).join(' ') || '(no name yet)') + '</strong></a>' + (d.grade ? '<div class="small muted">' + esc(d.grade) + '</div>' : '') + '</td><td>' + esc((d.positions || []).join(', ')) + '</td><td class="small">' + esc(d.school || '') + '</td><td class="small">' + esc(a.email) + '</td><td class="small">' + esc(when(a.submitted_at || a.updated_at)) + '</td></tr>';
           return '<tr><td><a href="#applications/' + a.id + '"><strong>' + esc(d.last_name || '(no name yet)') + '</strong></a>' + (d.father && d.father.first || d.mother && d.mother.first ? '<div class="small muted">' + esc([d.father && d.father.first, d.mother && d.mother.first].filter(Boolean).join(' & ')) + '</div>' : '') + '</td>' +
             '<td>' + (d.campers || []).map(function (k) { return '<div>' + kidLine(k, d) + '</div>'; }).join('') + '</td><td class="small">' + esc(a.email) + '</td><td class="small">' + esc(when(a.submitted_at || a.updated_at)) + '</td></tr>';
-        }).join('') + '</tbody></table></div>' : '<p class="muted">' + { submitted: 'No applications waiting for review.', waitlisted: 'Nobody on the waiting list.', accepted: 'No accepted applications yet.', declined: 'No declined applications.', draft: 'No applications in progress.' }[tab] + '</p>') +
-        (tab === 'draft' && list.length ? '<p class="small muted">Parents who started but haven\'t sent their application yet. They can\'t be accepted until they send it.</p>' : '');
+        }).join('') + '</tbody></table></div>' : '<p class="muted">' + { submitted: 'No applications waiting for review.', waitlisted: 'Nobody on the waiting list.', accepted: staff ? 'Nobody hired yet.' : 'No accepted applications yet.', declined: 'No declined applications.', draft: 'No applications in progress.' }[tab] + '</p>') +
+        (tab === 'draft' && list.length ? '<p class="small muted">Started but not sent yet. They can\'t be ' + (staff ? 'hired' : 'accepted') + ' until they\'re sent.</p>' : '');
       [].forEach.call($main.querySelectorAll('[data-tab]'), function (b) { b.onclick = function () { S.appTab = b.dataset.tab; applicationsPage(); }; });
-      var cp = document.getElementById('copyreg'); if (cp) cp.onclick = function () { navigator.clipboard.writeText(regLink()).then(function () { toast('Link copied'); }); };
+      [].forEach.call($main.querySelectorAll('[data-kind]'), function (b) { b.onclick = function () { S.appKind = b.dataset.kind; applicationsPage(); }; });
+      var cp = document.getElementById('copyreg'); if (cp) cp.onclick = function () { navigator.clipboard.writeText(regLink(kind)).then(function () { toast('Link copied'); }); };
     }).catch(fail);
   }
   function applicationPage(id) {
@@ -1093,6 +1221,7 @@
     DB.from('applications').select('*').eq('id', id).maybeSingle().then(function (r) {
       var a = must(r);
       if (!a) { $main.innerHTML = '<p><a href="#applications">← Applications</a></p><div class="card">Application not found.</div>'; return; }
+      if (a.kind === 'staff') return staffApplicationPage(a);
       var d = a.data || {}, edit = can('applications', 'change'), open = a.status === 'submitted' || a.status === 'waitlisted';
       return (open && edit ? DB.rpc('application_matches', { p_id: id }).then(must) : Promise.resolve([])).then(function (matches) {
         matches = matches || [];
@@ -1134,18 +1263,90 @@
       });
     }).catch(fail);
   }
+
+
+  // Open a staff tax form (a private file; the link works for one minute).
+  function taxRow(t, rowFn) {
+    if (!t || !t.path) return rowFn('Tax form', '<span class="muted">Not uploaded</span>');
+    return rowFn('Tax form', esc(t.type || '') + (t.uploaded_at ? ' <span class="small muted">· uploaded ' + esc(when(t.uploaded_at)) + '</span>' : '') +
+      (can('tax_forms') ? ' <button type="button" data-taxview="' + esc(t.path) + '">View</button>' : ' <span class="small muted">· only people allowed to see tax forms can open it</span>'));
+  }
+  function bindTaxView() {
+    [].forEach.call($main.querySelectorAll('[data-taxview]'), function (b) {
+      b.onclick = function () {
+        if (S.demo) return toast('In ' + DEMO.NAME + ' there\'s no real file. In your own camp this opens the uploaded form.');
+        var w = window.open('', '_blank');
+        sb.storage.from('tax-forms').createSignedUrl(b.dataset.taxview, 60).then(function (r) { if (r.error) throw r.error; if (w) w.location = r.data.signedUrl; else location.href = r.data.signedUrl; }).catch(function (e) { if (w) w.close(); fail(e); });
+      };
+    });
+  }
+
+  // A staff application: who they are, experience, and hiring (choose the positions).
+  function staffApplicationPage(a) {
+    var d = a.data || {}, id = a.id, edit = can('applications', 'change'), open = a.status === 'submitted' || a.status === 'waitlisted';
+    var positions = (((S.camp.settings || {}).registration || {}).staff || {}).positions || window.RegForm.POSITIONS;
+    var allPos = positions.concat((d.positions || []).filter(function (p) { return positions.indexOf(p) < 0; }));
+    return (open && edit ? DB.rpc('staff_application_matches', { p_id: id }).then(must) : Promise.resolve([])).then(function (matches) {
+      matches = matches || [];
+      var sname = function (x) { var q = S.sessions.find(function (y) { return y.id === x; }); return q ? q.name : ''; };
+      var row = function (k, v) { return v ? '<tr><th style="width:170px">' + esc(k) + '</th><td>' + v + '</td></tr>' : ''; };
+      var exp = function (list, cols) { var r = (list || []).filter(function (x) { return x && x.camp; }); return r.length ? r.map(function (x) { return '<div>' + esc(cols.map(function (c) { return x[c]; }).filter(Boolean).join(', ')) + '</div>'; }).join('') : '<span class="muted">None</span>'; };
+      var par = function (w) { var p = d[w] || {}; return p.first ? esc(p.first) + ' <span class="small">' + [p.phone ? '<a href="tel:' + esc(p.phone) + '">' + esc(p.phone) + '</a>' : '', p.email ? '<a href="mailto:' + esc(p.email) + '">' + esc(p.email) + '</a>' : ''].filter(Boolean).join(' · ') + '</span>' : ''; };
+      var qs = window.RegForm.custom((((S.camp.settings || {}).registration || {}).staff || {}).form);
+      var html = '<p class="noprint"><a href="#applications">← Applications</a></p><h1>' + esc([d.first, d.last].filter(Boolean).join(' ') || 'Staff application') + ' <span class="chip ' + APP_STATUS[a.status][1] + '">' + (a.status === 'accepted' ? 'Hired' : APP_STATUS[a.status][0]) + '</span></h1>' +
+        '<p class="muted">Staff application from ' + esc(a.email) + (a.submitted_at ? ' · sent ' + esc(when(a.submitted_at)) + ' · signed by ' + esc(a.signature || '') : ' · not sent yet') + (a.decided_at ? ' · decided ' + esc(when(a.decided_at)) + ' by ' + esc(a.decided_by || '') : '') + '</p>' +
+        (a.status === 'accepted' && a.staff_member_id ? '<div style="background:var(--good-soft);padding:10px 12px;border-radius:8px;margin-bottom:12px">On the staff roster. <a href="#staffroster/' + a.staff_member_id + '">See their page</a></div>' : '') +
+        '<div class="card"><table class="kv">' +
+        row('Positions wanted', esc((d.positions || []).join(', '))) + row('Sessions', esc((d.sessions || []).map(sname).filter(Boolean).join(' & '))) +
+        row('Born', esc(d.dob || '') + (d.gender ? ' · ' + esc(d.gender) : '')) + row('School', esc([d.school, d.grade].filter(Boolean).join(', '))) +
+        row('Phone and email', [d.phone ? '<a href="tel:' + esc(d.phone) + '">' + esc(d.phone) + '</a>' : '', d.email ? '<a href="mailto:' + esc(d.email) + '">' + esc(d.email) + '</a>' : ''].filter(Boolean).join(' · ')) +
+        row('Hebrew name', esc(d.hebrew_name || '')) + row('Address', esc([d.address, d.city, [d.state, d.zip].filter(Boolean).join(' ')].filter(Boolean).join(', '))) +
+        row('Father', par('father')) + row('Mother', par('mother')) +
+        row('Emergency contact', (d.emergency || []).filter(function (e) { return e && e.name; }).map(function (e) { return esc([e.name, e.relation, e.phone].filter(Boolean).join(', ')); }).join('<br>')) +
+        row('As a camper', exp(d.camper_experience, ['camp', 'years'])) + row('On staff', exp(d.staff_experience, ['camp', 'position', 'years'])) +
+        qs.map(function (q) { var v = (d.custom || {})[q.id]; return row(q.label, esc(Array.isArray(v) ? v.join(', ') : (v || ''))); }).join('') +
+        row('Notes', d.notes ? '<span style="white-space:pre-line">' + esc(d.notes) + '</span>' : '') +
+        ((((S.camp.settings || {}).registration || {}).staff || {}).tax_form && S.camp.settings.registration.staff.tax_form !== 'none' || d.tax_form ? taxRow(d.tax_form, row) : '') + '</table></div>';
+      if (edit && open) {
+        html += '<div class="card"><h2 style="margin-top:0">Hire</h2><fieldset class="cols"><legend>Positions</legend>' + allPos.map(function (p) { return '<label class="check"><input type="checkbox" data-hpos value="' + esc(p) + '"' + ((d.positions || []).indexOf(p) >= 0 ? ' checked' : '') + '><span>' + esc(p) + '</span></label>'; }).join('') + '</fieldset>' +
+          (matches.length ? '<p><strong>Already on your staff roster?</strong></p>' + matches.map(function (m) { return '<div class="row" style="justify-content:space-between;align-items:center;border-top:1px solid var(--line);padding:8px 0"><div><strong>' + esc(m.name) + '</strong> <span class="small muted">' + esc(m.positions || '') + ' · ' + esc(m.why) + '</span></div><button data-hinto="' + m.member_id + '">Hire and update this person</button></div>'; }).join('') : '') +
+          '<label class="check"><input type="checkbox" id="mailfam" checked><span>Email them about the decision</span></label>' +
+          '<div class="row" style="flex-wrap:wrap;margin-top:10px"><button class="primary" id="hire">' + (matches.length ? 'Hire as new staff' : 'Hire') + '</button>' + (a.status !== 'waitlisted' ? '<button id="wait">Waiting list</button>' : '') + '<button id="dec">Decline</button></div></div>';
+      }
+      if (edit) html += '<div class="card noprint"><label class="field">Office note <span class="small muted">(only staff see this)</span><textarea id="onote" rows="2" maxlength="2000">' + esc(a.office_note || '') + '</textarea></label><button id="savenote">Save note</button></div>';
+      $main.innerHTML = html;
+      var mail = function () { return document.getElementById('mailfam') && document.getElementById('mailfam').checked ? fn('notify', { action: 'application_decided', id: id }).catch(function (e) { toast('Saved, but the email didn\'t go out: ' + e.message); }) : Promise.resolve(); };
+      var decide = function (p, msg) { p.then(must).then(mail).then(function () { toast(msg); countApplications(); applicationPage(id); }).catch(fail); };
+      var pos = function () { return [].filter.call($main.querySelectorAll('[data-hpos]'), function (x) { return x.checked; }).map(function (x) { return x.value; }); };
+      var h = document.getElementById('hire');
+      if (h) h.onclick = function () { if (!pos().length) return toast('Choose at least one position.'); decide(DB.rpc('hire_staff_application', { p_id: id, p_positions: pos(), p_member: null }), 'Hired: on the staff roster'); };
+      [].forEach.call($main.querySelectorAll('[data-hinto]'), function (b) { b.onclick = function () { if (!pos().length) return toast('Choose at least one position.'); decide(DB.rpc('hire_staff_application', { p_id: id, p_positions: pos(), p_member: b.dataset.hinto }), 'Hired: their staff record is updated'); }; });
+      var w = document.getElementById('wait'); if (w) w.onclick = function () { decide(DB.from('applications').update({ status: 'waitlisted', decided_by: S.user.email, decided_at: new Date().toISOString() }).eq('id', id), 'Put on the waiting list'); };
+      // Declining also deletes their tax form: no reason to keep an SSN for someone not hired.
+      var dc = document.getElementById('dec'); if (dc) dc.onclick = function () {
+        if (!confirm('Decline this application?' + (d.tax_form && d.tax_form.path ? ' Their tax form will be deleted.' : ''))) return;
+        var gone = d.tax_form && d.tax_form.path && !S.demo ? sb.storage.from('tax-forms').remove([d.tax_form.path]).then(function () { return DB.from('applications').update({ data: Object.assign({}, d, { tax_form: null }) }).eq('id', id); }) : Promise.resolve();
+        decide(gone.then(function () { return DB.from('applications').update({ status: 'declined', decided_by: S.user.email, decided_at: new Date().toISOString() }).eq('id', id); }), 'Declined');
+      };
+      var sn = document.getElementById('savenote'); if (sn) sn.onclick = function () { DB.from('applications').update({ office_note: document.getElementById('onote').value.trim() || null }).eq('id', id).then(must).then(function () { toast('Note saved'); }).catch(fail); };
+      bindTaxView();
+    });
+  }
+
   // Online registration setup: on/off, dates, review, sessions, the questions, payment plans, wording.
-  function registrationSetup() {
-    var RF = window.RegForm;
-    var W = JSON.parse(JSON.stringify(((S.camp.settings || {}).registration || {}).camper || {}));
+  function registrationSetup(kind) {
+    kind = kind || 'camper';
+    var RF = window.RegForm, staff = kind === 'staff';
+    var W = JSON.parse(JSON.stringify(((S.camp.settings || {}).registration || {})[kind] || {}));
+    if (staff && !W.positions) W.positions = RF.POSITIONS.slice();
     W.form = W.form || {}; W.form.builtin = W.form.builtin || {}; W.form.custom = W.form.custom || [];
     W.payment = W.payment || {}; W.payment.plans = W.payment.plans || [];
     var typeSel = function (t) { return RF.TYPES.map(function (x) { return '<option value="' + x[0] + '"' + (t === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join(''); };
     function draw() {
       var chosen = W.sessions;
       var sec = function (key, label) {
-        var std = RF.BUILTIN.filter(function (b) { return b.section === key; }).map(function (b) {
-          var f = RF.field(W.form, b.key), o = W.form.builtin[b.key] || {};
+        var std = RF.builtin(kind).filter(function (b) { return b.section === key; }).map(function (b) {
+          var f = RF.field(W.form, b.key, kind), o = W.form.builtin[b.key] || {};
           return '<li class="qrow"><input type="text" data-blabel="' + b.key + '" value="' + esc(o.label || '') + '" placeholder="' + esc(b.label) + '" aria-label="Question" maxlength="120">' +
             (b.lock ? '<span class="small muted lockq">Always asked</span>' : '<select data-bmode="' + b.key + '" aria-label="' + esc(b.label) + '"><option value="required"' + (f.mode === 'required' ? ' selected' : '') + '>Required</option><option value="optional"' + (f.mode === 'optional' ? ' selected' : '') + '>Optional</option><option value="hidden"' + (f.mode === 'hidden' ? ' selected' : '') + '>Not asked</option></select>') +
             (b.note ? '<div class="small muted qnote">' + esc(b.note) + '</div>' : '') +
@@ -1160,35 +1361,39 @@
             '<label class="field qopts"' + (q.type === 'choice' || q.type === 'multi' ? '' : ' hidden') + '>Choices, one per line<textarea data-q="options" rows="3">' + esc((q.options || []).join('\n')) + '</textarea></label>' +
             '<input type="text" data-q="help" value="' + esc(q.help || '') + '" placeholder="Help text under the question (optional)" maxlength="500" style="margin-top:6px"></div></li>';
         }).join('');
-        return '<div class="qsec"><h3>' + label + '</h3><ul class="qlist">' + std + '</ul>' + (own ? '<p class="small muted" style="margin:8px 0 4px">Your questions' + (key === 'camper' ? ' (saved as camper details: on the Roster and in reports)' : '') + '</p><ul class="collist" id="qs_' + key + '">' + own + '</ul>' : '') +
+        return '<div class="qsec"><h3>' + label + '</h3><ul class="qlist">' + std + '</ul>' + (own ? '<p class="small muted" style="margin:8px 0 4px">Your questions' + (key === 'camper' && !staff ? ' (saved as camper details: on the Roster and in reports)' : '') + '</p><ul class="collist" id="qs_' + key + '">' + own + '</ul>' : '') +
           '<button type="button" data-addq="' + key + '">+ Add a question</button></div>';
       };
-      $main.innerHTML = '<p class="noprint"><a href="#applications">← Applications</a></p><h1>Online registration</h1>' +
-        '<p class="muted" style="max-width:760px">Parents sign in, fill in one application for the family, and sign it. While this is off, nothing changes: Camp Flow and its daily import work as they do now.</p>' +
+      $main.innerHTML = '<p class="noprint"><a href="#applications">← Applications</a></p><h1>' + (staff ? 'Staff applications' : 'Online registration') + '</h1>' +
+        '<p class="muted" style="max-width:760px">' + (staff ? 'People who want to work at camp sign in, fill in the application and sign it. You review each one, and hiring adds them to the Staff roster.' : 'Parents sign in, fill in one application for the family, and sign it. While this is off, nothing changes: Camp Flow and its daily import work as they do now.') + '</p>' +
         '<form id="regf">' +
-        '<div class="card"><h2 style="margin-top:0">When and how</h2><label class="check"><input type="checkbox" id="r_on"' + (W.enabled ? ' checked' : '') + '><span><strong>Accept applications online</strong></span></label>' +
+        '<div class="card"><h2 style="margin-top:0">When and how</h2><label class="check"><input type="checkbox" id="r_on"' + (W.enabled ? ' checked' : '') + '><span><strong>' + (staff ? 'Accept staff applications' : 'Accept applications online') + '</strong></span></label>' +
         '<div class="row" style="gap:14px;flex-wrap:wrap"><label class="field">Opens on <span class="small muted">(blank = right away)</span><input type="date" id="r_open" value="' + esc(W.opens_on || '') + '"></label>' +
         '<label class="field">Closes after <span class="small muted">(blank = no end date)</span><input type="date" id="r_close" value="' + esc(W.closes_on || '') + '"></label></div>' +
-        '<label class="check"><input type="checkbox" id="r_appr"' + (W.approval === false ? '' : ' checked') + '><span><strong>Review each application before it\'s accepted</strong><span class="small muted" style="display:block;font-weight:400">Recommended. If off, applications are accepted into the roster as soon as they\'re sent (into the family with the same email if there is one).</span></span></label>' +
-        '<fieldset class="cols"><legend>Sessions parents can choose</legend>' + (S.sessions.length ? S.sessions.map(function (x) { return '<label class="check"><input type="checkbox" data-sess="' + x.id + '"' + (!chosen || chosen.indexOf(x.id) >= 0 ? ' checked' : '') + '><span>' + esc(x.name) + (x.starts_on ? ' <span class="small muted">' + esc(x.starts_on) + (x.ends_on ? ' to ' + esc(x.ends_on) : '') + '</span>' : '') + '</span></label>'; }).join('') : '<p class="small muted">No sessions yet. Add them in Settings, or they arrive with Camp Flow\'s camper report.</p>') + '</fieldset></div>' +
+        (staff ? '' : '<label class="check"><input type="checkbox" id="r_appr"' + (W.approval === false ? '' : ' checked') + '><span><strong>Review each application before it\'s accepted</strong><span class="small muted" style="display:block;font-weight:400">Recommended. If off, applications are accepted into the roster as soon as they\'re sent (into the family with the same email if there is one).</span></span></label>') +
+        (staff ? '<label class="field">Positions <span class="small muted">(one per line; applicants choose any)</span><textarea id="r_pos" rows="7">' + esc((W.positions || []).join('\n')) + '</textarea></label>' : '') +
+        '<fieldset class="cols"><legend>' + (staff ? 'Sessions applicants can choose' : 'Sessions parents can choose') + '</legend>' + (S.sessions.length ? S.sessions.map(function (x) { return '<label class="check"><input type="checkbox" data-sess="' + x.id + '"' + (!chosen || chosen.indexOf(x.id) >= 0 ? ' checked' : '') + '><span>' + esc(x.name) + (x.starts_on ? ' <span class="small muted">' + esc(x.starts_on) + (x.ends_on ? ' to ' + esc(x.ends_on) : '') + '</span>' : '') + '</span></label>'; }).join('') : '<p class="small muted">No sessions yet. Add them in Settings, or they arrive with Camp Flow\'s camper report.</p>') + '</fieldset></div>' +
         '<div class="card"><h2 style="margin-top:0">Questions</h2><p class="small muted">Rename any question, choose whether it\'s required, optional or not asked, and add your own. Drag your questions by the dots to reorder them.</p>' +
-        RF.SECTIONS.map(function (x) { return sec(x[0], x[1]); }).join('') + '</div>' +
-        '<div class="card"><h2 style="margin-top:0">Payment plans</h2><p class="small muted">Payments go through your own payment processor. Parents pick a plan on the form; give each plan a link to your payment page.</p><div id="plans">' +
+        RF.sections(kind).map(function (x) { return sec(x[0], x[1]); }).join('') + '</div>' +
+        (staff ? '' : '<div class="card"><h2 style="margin-top:0">Payment plans</h2><p class="small muted">Payments go through your own payment processor. Parents pick a plan on the form; give each plan a link to your payment page.</p><div id="plans">' +
         W.payment.plans.map(function (p) {
           return '<div class="plan" data-pid="' + p.id + '"><div class="row" style="gap:8px;flex-wrap:wrap"><input type="text" data-p="name" value="' + esc(p.name || '') + '" placeholder="Plan name, e.g. Pay in full" maxlength="120" style="flex:1;min-width:180px">' +
             '<input type="url" data-p="link" value="' + esc(p.link || '') + '" placeholder="https://your payment page" maxlength="500" style="flex:2;min-width:220px"><button type="button" data-pdel>Remove</button></div>' +
             '<textarea data-p="description" rows="2" maxlength="1000" placeholder="What it is, e.g. 3 payments: May 1, June 1, July 1">' + esc(p.description || '') + '</textarea></div>';
         }).join('') + '</div><p><button type="button" id="addplan">+ Add a payment plan</button></p>' +
         '<fieldset class="cols"><legend>Show the "Pay now" link</legend><label class="check"><input type="radio" name="payshow" value="after_accept"' + (W.payment.show !== 'after_send' ? ' checked' : '') + '><span>After the application is accepted</span></label>' +
-        '<label class="check"><input type="radio" name="payshow" value="after_send"' + (W.payment.show === 'after_send' ? ' checked' : '') + '><span>Right after the application is sent</span></label></fieldset></div>' +
+        '<label class="check"><input type="radio" name="payshow" value="after_send"' + (W.payment.show === 'after_send' ? ' checked' : '') + '><span>Right after the application is sent</span></label></fieldset></div>') +
+        (staff ? '<div class="card"><h2 style="margin-top:0">Tax form</h2><p class="small muted">Applicants download the IRS form, fill it in and upload it. It holds their Social Security number, so only directors and roles you allow under "Staff tax forms" in Who can see what can open it (finance can by default). Declining an application deletes its form.</p>' +
+          '<div class="row" style="gap:14px;flex-wrap:wrap"><label class="field">Ask for<select id="r_tax">' + [['none', 'No tax form'], ['w4', 'W-4 (employees)'], ['w9', 'W-9 (independent contractors)'], ['choice', 'W-4 or W-9: the applicant chooses']].map(function (o) { return '<option value="' + o[0] + '"' + ((W.tax_form || 'none') === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
+          '<label class="field">When<select id="r_taxwhen"><option value="apply"' + (W.tax_when !== 'hired' ? ' selected' : '') + '>With the application</option><option value="hired"' + (W.tax_when === 'hired' ? ' selected' : '') + '>After they\'re hired</option></select></label></div></div>' : '') +
         '<div class="card"><h2 style="margin-top:0">Wording</h2><label class="field">Welcome text <span class="small muted">(shown at the top of the application)</span><textarea id="r_intro" rows="3" maxlength="4000">' + esc(W.intro || '') + '</textarea></label>' +
-        '<label class="field">Agreement parents sign <span class="small muted">(camp policies, payment terms, release; leave blank for a simple "this information is correct")</span><textarea id="r_agree" rows="8" maxlength="20000">' + esc(W.agreement || '') + '</textarea></label></div>' +
-        '<div class="row savebar"><button class="primary">Save</button>' + (S.demo ? '' : '<a class="btn" href="' + esc(regLink()) + '" target="_blank" rel="noopener">Preview the parents\' page</a>') + '</div></form>';
-      RF.SECTIONS.forEach(function (x) { var ul = document.getElementById('qs_' + x[0]); if (ul) dragTiles(ul); });
+        '<label class="field">' + (staff ? 'Agreement applicants sign <span class="small muted">(staff policies; leave blank for a simple "this information is correct")</span>' : 'Agreement parents sign <span class="small muted">(camp policies, payment terms, release; leave blank for a simple "this information is correct")</span>') + '<textarea id="r_agree" rows="8" maxlength="20000">' + esc(W.agreement || '') + '</textarea></label></div>' +
+        '<div class="row savebar"><button class="primary">Save</button>' + (S.demo ? '' : '<a class="btn" href="' + esc(regLink(kind)) + '" target="_blank" rel="noopener">Preview the ' + (staff ? 'application' : 'parents\'') + ' page</a>') + '</div></form>';
+      RF.sections(kind).forEach(function (x) { var ul = document.getElementById('qs_' + x[0]); if (ul) dragTiles(ul); });
       $main.querySelectorAll('[data-q="type"]').forEach(function (sel) { sel.onchange = function () { sel.closest('li').querySelector('.qopts').hidden = !(sel.value === 'choice' || sel.value === 'multi'); }; });
       $main.querySelectorAll('[data-addq]').forEach(function (b) { b.onclick = function () { read(); W.form.custom.push({ id: RF.newId(), section: b.dataset.addq, label: '', type: 'text', required: false }); draw(); var ins = $main.querySelectorAll('#qs_' + b.dataset.addq + ' [data-q="label"]'); ins[ins.length - 1].focus(); }; });
       $main.querySelectorAll('[data-qdel]').forEach(function (b) { b.onclick = function () { read(); var id = b.closest('li').dataset.qid; W.form.custom = W.form.custom.filter(function (q) { return q.id !== id; }); draw(); }; });
-      document.getElementById('addplan').onclick = function () { read(); W.payment.plans.push({ id: RF.newId(), name: '' }); draw(); var ins = $main.querySelectorAll('[data-p="name"]'); ins[ins.length - 1].focus(); };
+      if (!staff) document.getElementById('addplan').onclick = function () { read(); W.payment.plans.push({ id: RF.newId(), name: '' }); draw(); var ins = $main.querySelectorAll('[data-p="name"]'); ins[ins.length - 1].focus(); };
       $main.querySelectorAll('[data-pdel]').forEach(function (b) { b.onclick = function () { read(); var id = b.closest('.plan').dataset.pid; W.payment.plans = W.payment.plans.filter(function (p) { return p.id !== id; }); draw(); }; });
       document.getElementById('regf').onsubmit = function (e) { e.preventDefault(); save(); };
     }
@@ -1196,15 +1401,16 @@
     function read() {
       var v = function (id) { var el = document.getElementById(id); return el ? el.value : ''; };
       W.enabled = document.getElementById('r_on').checked; W.opens_on = v('r_open'); W.closes_on = v('r_close');
-      W.approval = document.getElementById('r_appr').checked; W.intro = v('r_intro'); W.agreement = v('r_agree');
+      W.approval = staff ? true : document.getElementById('r_appr').checked;
+      if (staff) { W.positions = v('r_pos').split('\n').map(function (x) { return x.trim(); }).filter(Boolean); W.tax_form = v('r_tax') || 'none'; W.tax_when = v('r_taxwhen') || 'apply'; } W.intro = v('r_intro'); W.agreement = v('r_agree');
       var boxes = [].slice.call($main.querySelectorAll('[data-sess]')), sess = boxes.filter(function (b) { return b.checked; }).map(function (b) { return b.dataset.sess; });
       W.sessions = boxes.length && sess.length < boxes.length ? sess : null; W._sessCount = sess.length; W._sessBoxes = boxes.length;
       var bi = {};
-      RF.BUILTIN.forEach(function (b) {
+      RF.builtin(kind).forEach(function (b) {
         var o = {}, lab = $main.querySelector('[data-blabel="' + b.key + '"]'), mode = $main.querySelector('[data-bmode="' + b.key + '"]'), opts = $main.querySelector('[data-bopts="' + b.key + '"]');
         if (lab && lab.value.trim()) o.label = lab.value.trim();
         if (mode && mode.value !== b.mode) o.mode = mode.value;
-        if (opts) { var list = opts.value.split('\n').map(function (x) { return x.trim(); }).filter(Boolean); if (list.join('|') !== RF.GRADES.join('|')) o.options = list; }
+        if (opts) { var list = opts.value.split('\n').map(function (x) { return x.trim(); }).filter(Boolean); if (list.join('|') !== (staff ? RF.STAFF_GRADES : RF.GRADES).join('|')) o.options = list; }
         if (Object.keys(o).length) bi[b.key] = o;
       });
       W.form.builtin = bi;
@@ -1217,21 +1423,25 @@
         var g = function (k) { return el.querySelector('[data-p="' + k + '"]').value.trim(); };
         return { id: el.dataset.pid, name: g('name'), link: g('link'), description: g('description') };
       });
-      var ps = $main.querySelector('[name="payshow"]:checked'); W.payment.show = ps ? ps.value : 'after_accept';
+      if (staff) W.payment = { plans: [] }; else { var ps = $main.querySelector('[name="payshow"]:checked'); W.payment.show = ps ? ps.value : 'after_accept'; }
     }
     function save() {
       read();
       if (W.enabled && W._sessBoxes && !W._sessCount) return toast('Choose at least one session.');
+      if (staff && !W.positions.length) return toast('List at least one position.');
       var bad = W.form.custom.find(function (q) { return !q.label || ((q.type === 'choice' || q.type === 'multi') && !q.options.length); });
       if (bad) return toast(bad.label ? 'Add the choices for "' + bad.label + '".' : 'One of your questions has no wording. Fill it in or remove it.');
       var badPlan = W.payment.plans.find(function (p) { return !p.name || (p.link && !/^https:\/\/\S+$/.test(p.link)); });
       if (badPlan) return toast(badPlan.name ? 'The link for "' + badPlan.name + '" must start with https://' : 'Give each payment plan a name, or remove it.');
       var out = JSON.parse(JSON.stringify(W)); delete out._sessCount; delete out._sessBoxes;
-      DB.rpc('set_registration', { p_camp: S.camp.id, p_kind: 'camper', p_settings: out }).then(must).then(function (saved) {
-        S.camp.settings = S.camp.settings || {}; S.camp.settings.registration = S.camp.settings.registration || {}; S.camp.settings.registration.camper = saved;
+      DB.rpc('set_registration', { p_camp: S.camp.id, p_kind: kind, p_settings: out }).then(must).then(function (saved) {
+        if (!staff) return saved;
+        return DB.rpc('set_tax_setting', { p_camp: S.camp.id, p_form: W.tax_form, p_when: W.tax_when }).then(must).then(function () { saved.tax_form = W.tax_form; saved.tax_when = W.tax_when; return saved; });
+      }).then(function (saved) {
+        S.camp.settings = S.camp.settings || {}; S.camp.settings.registration = S.camp.settings.registration || {}; S.camp.settings.registration[kind] = saved;
         return DB.from('perm_items').select('*').eq('camp_id', S.camp.id).order('sort').then(function (r) { if (!r.error) S.items = r.data; S.roster = null; return saved; });
       }).then(function (saved) {
-        toast(saved.enabled ? 'Saved. Online registration is on.' : 'Saved. Online registration is off.'); location.hash = '#applications';
+        toast((staff ? 'Saved. Staff applications are ' : 'Saved. Online registration is ') + (saved.enabled ? 'on.' : 'off.')); S.appKind = kind; location.hash = '#applications';
       }).catch(fail);
     }
     draw();

@@ -30,20 +30,53 @@
     { key: 'camper.sessions', section: 'camper', label: 'Sessions', mode: 'required', note: 'Only asked when the camp offers sessions' },
     { key: 'notes', section: 'other', label: 'Notes for the camp office', mode: 'optional' }
   ];
+  // Staff applications: the applicant fills it in themselves (usually older teens).
+  var STAFF_GRADES = ['9th', '10th', '11th', '12th', 'Beis medrash / post high school', 'College', 'Adult'];
+  var POSITIONS = ['Lifeguard', 'Canteen', 'Kitchen staff', 'Waiter', 'Counselor', 'Madrich', 'Leagues'];
+  var STAFF_BUILTIN = [
+    { key: 'first', section: 'applicant', label: 'First name', lock: true },
+    { key: 'last', section: 'applicant', label: 'Last name', lock: true },
+    { key: 'dob', section: 'applicant', label: 'Date of birth', mode: 'required' },
+    { key: 'gender', section: 'applicant', label: 'Gender', mode: 'required' },
+    { key: 'phone', section: 'applicant', label: 'Your cell phone', mode: 'required' },
+    { key: 'email', section: 'applicant', label: 'Your email', lock: true },
+    { key: 'hebrew_name', section: 'applicant', label: 'Hebrew name', mode: 'optional' },
+    { key: 'address', section: 'applicant', label: 'Street address', mode: 'required' },
+    { key: 'city', section: 'applicant', label: 'City', mode: 'required' },
+    { key: 'state', section: 'applicant', label: 'State', mode: 'required' },
+    { key: 'zip', section: 'applicant', label: 'ZIP code', mode: 'required' },
+    { key: 'school', section: 'applicant', label: 'School / yeshiva', mode: 'required' },
+    { key: 'grade', section: 'applicant', label: 'Grade or year in September', mode: 'required', choices: true },
+    { key: 'positions', section: 'job', label: 'Positions you\'re applying for', lock: true, note: 'The choices are your positions list below' },
+    { key: 'sessions', section: 'job', label: 'Sessions you can work', mode: 'required', note: 'Only asked when the camp offers sessions' },
+    { key: 'parent.first', section: 'parents', label: 'Parent\'s first name', mode: 'required', note: 'Asked for each parent; at least one when required' },
+    { key: 'parent.phone', section: 'parents', label: 'Parent\'s cell phone', mode: 'required' },
+    { key: 'parent.email', section: 'parents', label: 'Parent\'s email', mode: 'optional' },
+    { key: 'emergency', section: 'emergency', label: 'Emergency contact (name and phone)', mode: 'required' },
+    { key: 'emergency.relation', section: 'emergency', label: 'Relationship', mode: 'optional' },
+    { key: 'experience.camper', section: 'experience', label: 'Camps you went to as a camper', mode: 'required', note: 'Camp and years; they can answer "none"' },
+    { key: 'experience.staff', section: 'experience', label: 'Camps you worked at', mode: 'required', note: 'Camp, position and years; they can answer "none"' },
+    { key: 'notes', section: 'other', label: 'Anything else we should know?', mode: 'optional' }
+  ];
+  var STAFF_SECTIONS = [['applicant', 'About you'], ['job', 'The job'], ['parents', 'Parents'], ['emergency', 'Emergency contact'], ['experience', 'Camp experience'], ['other', 'Anything else']];
   var TYPES = [['text', 'Short answer'], ['long', 'Long answer'], ['yesno', 'Yes / No'], ['choice', 'Choose one'], ['multi', 'Choose any'], ['date', 'Date'], ['number', 'Number']];
   var SECTIONS = [['family', 'Family'], ['parents', 'Parents'], ['emergency', 'Emergency contacts'], ['camper', 'Each camper'], ['other', 'Anything else']];
 
   // One question as this camp has it: { key, label, mode ('required' | 'optional' | 'hidden'), options }.
-  function field(form, key) {
-    var b = BUILTIN.find(function (x) { return x.key === key; }), o = ((form || {}).builtin || {})[key] || {};
+  function builtin(kind) { return kind === 'staff' ? STAFF_BUILTIN : BUILTIN; }
+  function sections(kind) { return kind === 'staff' ? STAFF_SECTIONS : SECTIONS; }
+  function field(form, key, kind) {
+    var b = builtin(kind).find(function (x) { return x.key === key; }), o = ((form || {}).builtin || {})[key] || {};
     if (!b) return null;
+    var std = kind === 'staff' ? STAFF_GRADES : GRADES;
     return { key: key, label: o.label || b.label, mode: b.lock ? 'required' : (o.mode || b.mode), lock: !!b.lock,
-      options: key === 'camper.grade' ? ((o.options && o.options.length) ? o.options : GRADES) : null };
+      options: b.choices ? ((o.options && o.options.length) ? o.options : std) : null };
   }
   function custom(form, section) { return ((form || {}).custom || []).filter(function (q) { return !section || q.section === section; }); }
   // A short, stable key for a new question (also its camper-detail key for camper questions).
   function newId() { return 'q' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
   function detailKey(q) { return 'f_reg_' + q.id; }
 
-  root.RegForm = { GRADES: GRADES, BUILTIN: BUILTIN, TYPES: TYPES, SECTIONS: SECTIONS, field: field, custom: custom, newId: newId, detailKey: detailKey };
+  root.RegForm = { GRADES: GRADES, STAFF_GRADES: STAFF_GRADES, POSITIONS: POSITIONS, BUILTIN: BUILTIN, STAFF_BUILTIN: STAFF_BUILTIN, TYPES: TYPES, SECTIONS: SECTIONS, STAFF_SECTIONS: STAFF_SECTIONS,
+    builtin: builtin, sections: sections, field: field, custom: custom, newId: newId, detailKey: detailKey };
 })(typeof window !== 'undefined' ? window : globalThis);

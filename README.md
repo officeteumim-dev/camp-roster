@@ -42,6 +42,14 @@ Parents apply at `/register.html?camp=<slug>`: they sign in (Google pop-up or em
 
 The Camp Flow import only looks at `campflow:` families, so online families (`online:<application id>`) are never flagged as gone.
 
+## Staff applications, staff roster and tax forms
+
+Staff apply at `/register.html?camp=<slug>&kind=staff` (off until turned on under **Applications → Staff → Set up staff applications**). The form is written for older teens: their details, school and grade, positions (the camp's list, Lifeguard, Canteen, Kitchen staff, Waiter, Counselor, Madrich and Leagues to start), sessions, parents, emergency contact, and camp experience as a camper and as staff (or "None"); the same question builder applies (`STAFF_BUILTIN` in `web/reg-form.js`). Staff applications are always reviewed: **Hire** with the chosen positions adds them to `staff_members` (or updates a returning staff member matched by email, phone or name).
+
+**Staff roster** (`#staffroster`, "Staff roster" in Who can see what; office by default) lists everyone working at camp, separate from app logins: search, filter by position and session, choose columns, sort, export, add by hand, edit, "No longer on staff".
+
+**Tax forms:** a camp can ask for a W-4, a W-9, or either (the applicant chooses), with the application or after hiring. Applicants download the IRS form, fill it in and upload it to the private `tax-forms` bucket (`<camp>/<application>/<file>`); the app never stores an SSN as data. Only directors and roles with "Staff tax forms" (finance by default) can open them, through one-minute links. Declining an application deletes its form; hiring copies the reference to the staff record.
+
 ## Open to the public, by approval
 
 Anyone can sign in (Google or an emailed link). People on a camp's staff go straight to their camp; everyone else sees a form to ask to open a camp (`camp_requests`, one waiting request per email) and, once sent, a "waiting for approval" note. Site owners (`site_admins`, seeded with office.teumim@gmail.com) get an email per request and decide under **Camp requests**: approving makes the camp with the standard forms, roles and settings and makes the requester its director; the requester is emailed either way. The switch on that page, "Let people without a camp explore Camp Test Site", is off until you're ready.
