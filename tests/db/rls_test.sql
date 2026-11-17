@@ -549,4 +549,43 @@ do $$ declare fam uuid; begin
 end $$;
 rollback;
 
+
+-- ---------- Registration form: the camp's own questions, payment plans, accepting without review ----------
+begin;
+do $$ begin perform pg_temp.as_user('dir@x.org'); end $$;
+select set_registration('00000000-0000-0000-0000-0000000000c1', 'camper', '{
+  "enabled": true, "approval": false,
+  "form": {"builtin": {"camper.dob": {"mode": "optional"}},
+           "custom": [{"id":"shirt1","section":"camper","label":"T-shirt size","type":"choice","options":["S","M","L"],"required":true},
+                      {"id":"shul01","section":"family","label":"Which shul?","type":"text"},
+                      {"id":"BAD!","section":"family","label":"dropped","type":"text"},
+                      {"id":"nolab1","section":"family","label":" ","type":"text"}]},
+  "payment": {"plans": [{"id":"full01","name":"Pay in full","link":"https://pay.example.com/full"},{"id":"bad002","name":"Unsafe link","link":"javascript:alert(1)"}], "show": "after_send"}}');
+do $$ declare r jsonb; begin
+  r := (select settings #> '{registration,camper}' from camps where id = '00000000-0000-0000-0000-0000000000c1');
+  assert jsonb_array_length(r #> '{form,custom}') = 2, 'bad questions dropped';
+  assert r #>> '{payment,plans,1,link}' is null and r #>> '{payment,plans,0,link}' = 'https://pay.example.com/full', 'only https links';
+  assert exists (select 1 from perm_items where key = 'f_reg_shirt1' and label = 'T-shirt size' and kind = 'field'), 'camper question is a camper detail';
+  assert not exists (select 1 from perm_items where key = 'f_reg_shul01'), 'family question is not';
+  assert (registration_info('camp-one') ->> 'approval') = 'false' and registration_info('camp-one') #>> '{form,custom,0,label}' = 'T-shirt size';
+end $$;
+reset role;
+-- A parent of a family already in the roster (same email) sends an application: accepted straight away, into that family.
+do $$ begin perform pg_temp.as_parent('dovid@x.org', '00000000-0000-0000-0000-00000000aaa4'); end $$;
+do $$ declare aid uuid; begin
+  insert into applications (camp_id, data, signature) values ('00000000-0000-0000-0000-0000000000c1',
+    '{"last_name":"Cohen","father":{"first":"Dovid","email":"dovid@x.org"},"custom":{"shul01":"Agudah"},"payment_plan":"full01","payment_plan_name":"Pay in full",
+      "campers":[{"first":"Rafi","custom":{"shirt1":"M"}}]}', 'Dovid Cohen') returning id into aid;
+  update applications set status = 'submitted' where id = aid;
+  assert (select status from applications where id = aid) = 'accepted', 'accepted without review';
+  assert (select family_id from applications where id = aid) = '00000000-0000-0000-0000-0000000000f2', 'into the family with the same email';
+end $$;
+reset role;
+do $$ begin
+  assert (select value from camper_fields cf join campers c on c.id = cf.camper_id where c.first_name = 'Rafi' and cf.item_key = 'f_reg_shirt1') = 'M', 'camper answer saved as a detail';
+  assert (select disclosures ->> 'Which shul?' from families where id = '00000000-0000-0000-0000-0000000000f2') = 'Agudah', 'family answer kept';
+  assert (select disclosures ->> 'Payment plan' from families where id = '00000000-0000-0000-0000-0000000000f2') = 'Pay in full', 'payment plan kept';
+end $$;
+rollback;
+
 \echo 'ALL DATABASE TESTS PASSED'

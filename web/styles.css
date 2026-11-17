@@ -104,3 +104,16 @@ table.kv { border-collapse: collapse; width: 100%; }
 table.kv th { text-align: left; vertical-align: top; padding: 8px 12px 8px 0; color: var(--muted); font-weight: 600; font-size: 14px; border-bottom: 1px solid var(--line); }
 table.kv td { padding: 8px 0; vertical-align: top; border-bottom: 1px solid var(--line); }
 table.kv tr:last-child th, table.kv tr:last-child td { border-bottom: 0; }
+
+.qsec { border-top: 1px solid var(--line); padding: 12px 0 14px; }
+.qsec h3 { margin: 0 0 8px; font-size: 15px; }
+.qlist { list-style: none; padding: 0; margin: 0 0 8px; display: grid; gap: 6px; }
+.qrow { display: grid; grid-template-columns: 1fr 150px; gap: 4px 10px; align-items: center; }
+.qrow .qnote { grid-column: 1 / -1; margin: 0; }
+.qrow .lockq { padding-left: 4px; }
+.qtile { align-items: flex-start !important; padding: 8px 10px 8px 2px !important; }
+.qtile .qbody { flex: 1; min-width: 0; }
+.plan { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin: 8px 0; display: grid; gap: 8px; }
+.savebar { position: sticky; bottom: 0; background: var(--bg, #f5f4ef); padding: 10px 0; z-index: 3; }
+@media (max-width: 560px) { .qrow { grid-template-columns: 1fr; } }
+[hidden] { display: none !important; }

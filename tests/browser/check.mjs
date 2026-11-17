@@ -214,12 +214,19 @@ await so.context().close();
   if (!/isn't open yet/.test(await reg.locator('main').innerText())) errors.push('closed registration not explained');
   await reg.context().close();
   PARENT.rpc.registration_info = { ...PARENT.rpc.registration_info, open: true, enabled: true, intro: 'Welcome to camp!', agreement: 'Camp rules: be kind.',
-    sessions: [{ id: 's1', name: 'First Half', starts_on: '2027-07-01', ends_on: '2027-07-21' }, { id: 's2', name: 'Second Half', starts_on: '2027-07-22', ends_on: '2027-08-12' }] };
+    sessions: [{ id: 's1', name: 'First Half', starts_on: '2027-07-01', ends_on: '2027-07-21' }, { id: 's2', name: 'Second Half', starts_on: '2027-07-22', ends_on: '2027-08-12' }],
+    form: { builtin: { 'camper.hebrew_name': { mode: 'hidden' }, 'zip': { mode: 'optional' }, 'camper.dob': { label: 'Birthday' } },
+      custom: [{ id: 'shirt1', section: 'camper', label: 'T-shirt size', type: 'choice', options: ['S', 'M', 'L'], required: true },
+               { id: 'shul01', section: 'family', label: 'Which shul?', type: 'text' },
+               { id: 'swim01', section: 'camper', label: 'Activities', type: 'multi', options: ['Swim', 'Art'], required: false }] },
+    payment: { plans: [{ id: 'full01', name: 'Pay in full', description: 'One payment by June 1', link: 'https://pay.example.com/full' }, { id: 'three1', name: 'Three payments' }], show: 'after_send' } };
   reg = await newPage(390, PARENT);
   await reg.goto('http://app.test/register.html?camp=teumim'); await reg.waitForTimeout(400);
   if ((await reg.locator('[data-k="father.email"]').inputValue()) !== 'parent@example.com') errors.push('parent email not filled in');
+  if (await reg.locator('[data-k="campers.0.hebrew_name"]').count()) errors.push('hidden question still asked');
+  if (!/Birthday/.test(await reg.locator('main').innerText())) errors.push('renamed question not shown');
   await reg.locator('#appf button.primary').click(); await reg.waitForTimeout(200);
-  if (!/Please fill in the family last name/.test(await reg.locator('.formerr').innerText().catch(() => ''))) errors.push('missing fields not listed');
+  if (!/Please fill in family last name/.test(await reg.locator('.formerr').innerText().catch(() => ''))) errors.push('missing fields not listed: ' + await reg.locator('.formerr').innerText().catch(e => 'none ' + e.message.slice(0,80)));
   const fill = async (k, v) => reg.locator(`[data-k="${k}"]`).fill(v);
   await fill('last_name', 'Goldberg'); await fill('address', '14 Ocean Pkwy'); await fill('city', 'Brooklyn'); await fill('state', 'NY'); await fill('zip', '11218');
   await fill('father.first', 'Yaakov'); await fill('father.phone', '718-555-0140');
@@ -227,18 +234,29 @@ await so.context().close();
   await fill('campers.0.first', 'Shimon'); await fill('campers.0.dob', '2015-05-12');
   await reg.locator('[data-k="campers.0.grade"]').selectOption('5th'); await reg.locator('[data-k="campers.0.gender"]').selectOption('Male');
   await reg.locator('[data-sessions="0"] input[value="s1"]').check();
+  await reg.locator('#agree').check(); await reg.locator('#sig').fill('Yaakov Goldberg');
+  await reg.locator('#appf button.primary').click(); await reg.waitForTimeout(200);
+  const still = await reg.locator('.formerr').innerText().catch(() => '');
+  if (!/t-shirt size/.test(still) || !/payment plan/.test(still) || /zip/i.test(still)) errors.push('custom required question / plan not checked: ' + still);
+  await reg.locator('[data-k="campers.0.custom.shirt1"]').selectOption('M');
+  await reg.locator('[data-multi="campers.0.custom.swim01"] input[value="Swim"]').check();
+  await fill('custom.shul01', 'Agudah');
+  await reg.locator('[data-plan] input[value="full01"]').check();
   await reg.locator('#addkid').click(); await reg.waitForTimeout(100);
   await fill('campers.1.first', 'Tzvi'); await fill('campers.1.dob', '2017-09-02');
   await reg.locator('[data-k="campers.1.grade"]').selectOption('3rd'); await reg.locator('[data-k="campers.1.gender"]').selectOption('Male');
   await reg.locator('[data-sessions="1"] input[value="s2"]').check();
+  await reg.locator('[data-k="campers.1.custom.shirt1"]').selectOption('S');
   await reg.locator('#agree').check(); await reg.locator('#sig').fill('Yaakov Goldberg');
   await reg.screenshot({ path: path.join(out, 'register-form.png'), fullPage: true });
   await reg.locator('#appf button.primary').click(); await reg.waitForTimeout(600);
   const w = await reg.evaluate(() => window.FAKE.writes.filter(x => x.table === 'applications'));
   const last = w.filter(x => x.value && x.value.data).pop();
+  if (!last || last.value.data.campers[0].custom.shirt1 !== 'M' || last.value.data.campers[0].custom.swim01[0] !== 'Swim' || last.value.data.custom.shul01 !== 'Agudah' || last.value.data.payment_plan_name !== 'Pay in full') errors.push('answers not saved: ' + JSON.stringify(last && last.value.data));
   if (!last || last.value.data.campers.length !== 2 || last.value.data.campers[1].sessions[0] !== 's2' || last.value.data.father.first !== 'Yaakov' || last.value.signature !== 'Yaakov Goldberg') errors.push('application not saved right: ' + JSON.stringify(last && last.value));
   if (!w.some(x => x.op === 'update' && x.value.status === 'submitted')) errors.push('application not sent');
   if (!/We received your application/.test(await reg.locator('main').innerText())) errors.push('no confirmation after sending');
+  if (!(await reg.getByRole('link', { name: 'Pay now' }).count())) errors.push('no Pay now link after sending');
   await reg.screenshot({ path: path.join(out, 'register-sent.png'), fullPage: true });
   await reg.context().close();
 }
@@ -416,8 +434,27 @@ if (!/Shimon Goldberg/.test(await demo.locator('main').innerText())) errors.push
 await demo.goto('http://app.test/#roster'); await demo.waitForTimeout(600);
 if (!/Goldberg/.test(await demo.locator('main').innerText())) errors.push('new family missing from roster');
 await demo.goto('http://app.test/#applications/setup'); await demo.waitForTimeout(400);
-await demo.locator('#r_close').fill('2027-05-31'); await demo.locator('#regf button.primary').click(); await demo.waitForTimeout(400);
-if (!/until 2027-05-31/.test(await demo.locator('main').innerText())) errors.push('registration settings not saved');
+await demo.locator('#r_close').fill('2027-05-31');
+await demo.locator('[data-bmode="camper.hebrew_name"]').selectOption('hidden');
+await demo.locator('[data-addq="camper"]').click(); await demo.waitForTimeout(100);
+await demo.locator('#qs_camper li[data-qid] [data-q="label"]').last().fill('T-shirt size');
+await demo.locator('#qs_camper li[data-qid] [data-q="type"]').last().selectOption('choice');
+await demo.locator('#qs_camper li[data-qid] [data-q="options"]').last().fill('S\nM\nL');
+await demo.locator('[data-addq="family"]').click(); await demo.waitForTimeout(100);
+await demo.locator('#qs_family li[data-qid] [data-q="label"]').last().fill('Which shul?');
+await demo.locator('#addplan').click(); await demo.waitForTimeout(100);
+await demo.locator('.plan [data-p="name"]').last().fill('Pay in full'); await demo.locator('.plan [data-p="link"]').last().fill('http://insecure.example.com');
+await demo.locator('#regf button.primary').click(); await demo.waitForTimeout(300);
+if (!/must start with https/.test(await demo.locator('.toast').last().innerText().catch(() => ''))) errors.push('insecure payment link accepted');
+await demo.locator('.plan [data-p="link"]').last().fill('https://pay.example.com');
+await demo.screenshot({ path: path.join(out, 'demo-registration-setup.png'), fullPage: true });
+await demo.locator('#regf button.primary').click(); await demo.waitForTimeout(400);
+if (!/until 2027-05-31/.test(await demo.locator('main').innerText())) errors.push('registration settings not saved: ' + (await demo.locator('.toast').last().innerText().catch(() => '')) + ' ' + demo.url());
+await demo.goto('http://app.test/#applications/setup'); await demo.waitForTimeout(400);
+const qs = await demo.locator('li[data-qid] [data-q="label"]').evaluateAll(x => x.map(i => i.value));
+if (qs.join('|') !== 'Which shul?|T-shirt size' && qs.join('|') !== 'T-shirt size|Which shul?') errors.push('questions not kept: ' + qs.join('|'));
+if ((await demo.locator('[data-bmode="camper.hebrew_name"]').inputValue()) !== 'hidden') errors.push('Not asked not kept');
+await demo.goto('http://app.test/#roster'); await demo.waitForTimeout(500);
 await viewAs('counselor@bunk-boys-1');
 if (/Applications/.test(await nav())) errors.push('counselor sees Applications');
 if (/Reports/.test(await nav())) errors.push('counselor sees Reports');

@@ -10,7 +10,6 @@
   var KIND = 'camper';
   var sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
   var S = { info: null, user: null, app: null, saving: null };
-  var GRADES = ['Pre-K', 'K', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th', '11th', '12th'];
 
   var esc = function (v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
   var day = function (d) { return d ? new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : ''; };
@@ -127,60 +126,90 @@
     if (o) o.onclick = function (e) { e.preventDefault(); sb.auth.signOut().then(function () { S.user = null; S.app = null; start(); }); };
   }
 
-  // ---------- The application ----------
-  function blankKid() { return { first: '', last: '', dob: '', gender: '', grade: '', hebrew_name: '', sessions: S.info.sessions.length === 1 ? [S.info.sessions[0].id] : [] }; }
+  // ---------- The application (questions as the camp set them up: web/reg-form.js) ----------
+  var F = function (key) { return window.RegForm.field(S.info.form, key); };
+  var asks = function (key) { var f = F(key); return f && f.mode !== 'hidden'; };
+  var plans = function () { return ((S.info.payment || {}).plans || []).filter(function (p) { return p && p.name; }); };
+  function blankKid() { return { first: '', last: '', dob: '', gender: '', grade: '', hebrew_name: '', custom: {}, sessions: S.info.sessions.length === 1 ? [S.info.sessions[0].id] : [] }; }
   function data() {
     var d = (S.app && S.app.data) || {};
-    d.father = d.father || {}; d.mother = d.mother || {};
+    d.father = d.father || {}; d.mother = d.mother || {}; d.custom = d.custom || {};
     d.emergency = d.emergency && d.emergency.length ? d.emergency : [{}, {}];
     d.campers = d.campers && d.campers.length ? d.campers : [blankKid()];
     if (!d.father.email && !d.mother.email && S.user) d.father.email = S.user.email;
     return d;
   }
-  var input = function (path, label, val, opts) {
+  // A standard question, if the camp asks it. req: required (unless the camp made it optional); parent questions are checked together.
+  var input = function (key, path, val, opts) {
     opts = opts || {};
-    return '<label class="field">' + esc(label) + (opts.optional ? ' <span class="small muted">(optional)</span>' : '') +
-      '<input type="' + (opts.type || 'text') + '" data-k="' + path + '" value="' + esc(val || '') + '"' + (opts.auto ? ' autocomplete="' + opts.auto + '"' : '') + (opts.optional ? '' : ' data-req') + (opts.inputmode ? ' inputmode="' + opts.inputmode + '"' : '') + ' maxlength="' + (opts.max || 120) + '"></label>';
+    var f = F(key); if (!f || f.mode === 'hidden') return '';
+    var optional = opts.forceOptional || f.mode === 'optional';
+    return '<label class="field">' + esc(opts.label || f.label) + (optional && !opts.noMark ? ' <span class="small muted">(optional)</span>' : '') +
+      '<input type="' + (opts.type || 'text') + '" data-k="' + path + '" value="' + esc(val || '') + '"' + (opts.auto ? ' autocomplete="' + opts.auto + '"' : '') +
+      (optional || opts.parent ? '' : ' data-req') + (opts.inputmode ? ' inputmode="' + opts.inputmode + '"' : '') + ' maxlength="' + (opts.max || 120) + '"></label>';
   };
+  // A camp's own question. path: where the answer goes ("custom.<id>" or "campers.<n>.custom.<id>").
+  function question(q, path, val) {
+    var req = q.required ? ' data-req' : '', lab = '<span>' + esc(q.label) + (q.required ? '' : ' <span class="small muted">(optional)</span>') + '</span>' + (q.help ? '<span class="small muted" style="display:block;font-weight:400">' + esc(q.help) + '</span>' : '');
+    var opts = (q.options || []).filter(Boolean);
+    if (q.type === 'multi') {
+      var have = Array.isArray(val) ? val : [];
+      return '<div class="field" style="font-weight:700">' + lab + '</div><div class="sessions" data-multi="' + path + '"' + (q.required ? ' data-multireq="' + esc(q.label) + '"' : '') + '>' + opts.map(function (o) {
+        return '<label class="check"><input type="checkbox" value="' + esc(o) + '"' + (have.indexOf(o) >= 0 ? ' checked' : '') + '><span>' + esc(o) + '</span></label>'; }).join('') + '</div>';
+    }
+    var ctl;
+    if (q.type === 'long') ctl = '<textarea data-k="' + path + '"' + req + ' rows="3" maxlength="2000">' + esc(val || '') + '</textarea>';
+    else if (q.type === 'yesno' || q.type === 'choice') ctl = '<select data-k="' + path + '"' + req + '><option value="">Choose…</option>' + (q.type === 'yesno' ? ['Yes', 'No'] : opts).map(function (o) { return '<option' + (val === o ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select>';
+    else ctl = '<input type="' + (q.type === 'date' ? 'date' : 'text') + '"' + (q.type === 'number' ? ' inputmode="decimal"' : '') + ' data-k="' + path + '"' + req + ' value="' + esc(val || '') + '" maxlength="500">';
+    return '<label class="field">' + lab + ctl + '</label>';
+  }
+  var customs = function (section, base, vals) { return window.RegForm.custom(S.info.form, section).map(function (q) { return question(q, base + q.id, (vals || {})[q.id]); }).join(''); };
   function parent(who, p, label) {
     return '<fieldset class="sec"><legend>' + label + '</legend><div class="row2">' +
-      input(who + '.first', 'First name', p.first, { optional: who === 'mother' ? false : false, auto: 'given-name' }) +
-      (who === 'mother' ? input('mother.maiden', 'Maiden name', p.maiden, { optional: true }) : input(who + '.title', 'Title', p.title, { optional: true, max: 20 })) +
-      input(who + '.phone', 'Cell phone', p.phone, { type: 'tel', auto: 'tel', inputmode: 'tel', max: 40 }) +
-      input(who + '.email', 'Email', p.email, { type: 'email', auto: 'email', max: 160 }) +
-      input(who + '.occupation', 'Occupation', p.occupation, { optional: true }) + '</div></fieldset>';
+      input('parent.first', who + '.first', p.first, { auto: 'given-name', parent: true, noMark: true }) +
+      (who === 'mother' ? input('parent.maiden', 'mother.maiden', p.maiden, { label: 'Maiden name' }) : input('parent.title', 'father.title', p.title, { max: 20 })) +
+      input('parent.phone', who + '.phone', p.phone, { type: 'tel', auto: 'tel', inputmode: 'tel', max: 40, parent: true, noMark: true }) +
+      input('parent.email', who + '.email', p.email, { type: 'email', auto: 'email', max: 160, parent: true, noMark: true }) +
+      input('parent.occupation', who + '.occupation', p.occupation) + '</div></fieldset>';
   }
   function kid(k, n) {
-    var sess = S.info.sessions;
+    var sess = S.info.sessions, g = F('camper.grade');
+    var sel = function (key, inner) { var f = F(key); if (!f || f.mode === 'hidden') return ''; return '<label class="field">' + esc(f.label) + (f.mode === 'optional' ? ' <span class="small muted">(optional)</span>' : '') + '<select data-k="campers.' + n + '.' + key.split('.')[1] + '"' + (f.mode === 'required' ? ' data-req' : '') + '><option value="">Choose…</option>' + inner + '</select></label>'; };
     return '<div class="kid" data-kid="' + n + '"><div class="kidhead"><h3 style="margin:6px 0">Camper ' + (n + 1) + '</h3>' + (n ? '<button type="button" data-remove="' + n + '">Remove</button>' : '') + '</div><div class="row2">' +
-      input('campers.' + n + '.first', 'First name', k.first) +
-      input('campers.' + n + '.last', 'Last name', k.last, { optional: true }) +
-      input('campers.' + n + '.dob', 'Date of birth', k.dob, { type: 'date' }) +
-      '<label class="field">Grade in September<select data-k="campers.' + n + '.grade" data-req><option value="">Choose…</option>' + GRADES.map(function (g) { return '<option' + (k.grade === g ? ' selected' : '') + '>' + g + '</option>'; }).join('') + '</select></label>' +
-      '<label class="field">Gender<select data-k="campers.' + n + '.gender" data-req><option value="">Choose…</option><option value="Male"' + (k.gender === 'Male' ? ' selected' : '') + '>Boy</option><option value="Female"' + (k.gender === 'Female' ? ' selected' : '') + '>Girl</option></select></label>' +
-      input('campers.' + n + '.hebrew_name', 'Hebrew name', k.hebrew_name, { optional: true }) + '</div>' +
-      (sess.length ? '<div class="field" style="font-weight:700">Sessions</div><div class="sessions" data-sessions="' + n + '">' + sess.map(function (s) {
-        return '<label class="check"><input type="checkbox" value="' + esc(s.id) + '"' + ((k.sessions || []).indexOf(s.id) >= 0 ? ' checked' : '') + '><span>' + esc(s.name) + (range(s) ? ' <span class="muted small">' + esc(range(s)) + '</span>' : '') + '</span></label>';
-      }).join('') + '</div>' : '') + '</div>';
+      input('camper.first', 'campers.' + n + '.first', k.first) + input('camper.last', 'campers.' + n + '.last', k.last) +
+      input('camper.dob', 'campers.' + n + '.dob', k.dob, { type: 'date' }) +
+      sel('camper.grade', (g ? g.options : []).map(function (x) { return '<option' + (k.grade === x ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('')) +
+      sel('camper.gender', '<option value="Male"' + (k.gender === 'Male' ? ' selected' : '') + '>Boy</option><option value="Female"' + (k.gender === 'Female' ? ' selected' : '') + '>Girl</option>') +
+      input('camper.hebrew_name', 'campers.' + n + '.hebrew_name', k.hebrew_name) + '</div>' +
+      (sess.length && asks('camper.sessions') ? '<div class="field" style="font-weight:700">' + esc(F('camper.sessions').label) + (F('camper.sessions').mode === 'optional' ? ' <span class="small muted">(optional)</span>' : '') + '</div><div class="sessions" data-sessions="' + n + '">' + sess.map(function (x) {
+        return '<label class="check"><input type="checkbox" value="' + esc(x.id) + '"' + ((k.sessions || []).indexOf(x.id) >= 0 ? ' checked' : '') + '><span>' + esc(x.name) + (range(x) ? ' <span class="muted small">' + esc(range(x)) + '</span>' : '') + '</span></label>';
+      }).join('') + '</div>' : '') + customs('camper', 'campers.' + n + '.custom.', k.custom) + '</div>';
   }
   function form(msg) {
-    var d = data(), i = S.info;
+    var d = data(), i = S.info, pl = plans();
+    var famInner = input('last_name', 'last_name', d.last_name, { auto: 'family-name' }) + input('address', 'address', d.address, { auto: 'street-address', max: 160 }) +
+      '<div class="row2">' + input('city', 'city', d.city, { auto: 'address-level2' }) + input('state', 'state', d.state, { auto: 'address-level1', max: 40 }) +
+      input('zip', 'zip', d.zip, { auto: 'postal-code', inputmode: 'numeric', max: 10 }) + '</div>' + customs('family', 'custom.', d.custom);
+    var emerg = asks('emergency') ? '<fieldset class="sec"><legend>Emergency contacts</legend><p class="small muted" style="margin:4px 0 0">Someone other than the parents, in case we can\'t reach you.</p>' + d.emergency.map(function (e, n) {
+        var opt = n > 0 || F('emergency').mode === 'optional';
+        return '<div class="row2" style="margin-top:8px">' + input('emergency', 'emergency.' + n + '.name', e.name, { label: 'Name', forceOptional: opt }) + input('emergency', 'emergency.' + n + '.phone', e.phone, { label: 'Phone', type: 'tel', inputmode: 'tel', forceOptional: opt, max: 40 }) +
+          input('emergency.relation', 'emergency.' + n + '.relation', e.relation, { max: 60 }) + '</div>';
+      }).join('') + customs('emergency', 'custom.', d.custom) + '</fieldset>' : '';
+    var other = (asks('notes') ? '<label class="field">' + esc(F('notes').label) + (F('notes').mode === 'optional' ? ' <span class="small muted">(optional)</span>' : '') + '<textarea data-k="notes" maxlength="2000" rows="3"' + (F('notes').mode === 'required' ? ' data-req' : '') + '>' + esc(d.notes || '') + '</textarea></label>' : '') + customs('other', 'custom.', d.custom);
     show('<h1>Apply to ' + esc(i.name) + '</h1>' + (i.intro ? '<p style="white-space:pre-line">' + esc(i.intro) + '</p>' : '') +
-      '<p class="small muted">Signed in as ' + esc(S.user.email) + ' · <a href="#" id="out">Sign out</a> · <span class="saved" id="saved">' + (S.app ? 'Your answers are saved as you go.' : 'Your answers are saved as you go.') + '</span></p>' +
+      '<p class="small muted">Signed in as ' + esc(S.user.email) + ' · <a href="#" id="out">Sign out</a> · <span class="saved" id="saved">Your answers are saved as you go.</span></p>' +
       (msg ? '<div class="error">' + esc(msg) + '</div>' : '') +
       '<form id="appf" novalidate>' +
-      '<fieldset class="sec"><legend>Family</legend>' + input('last_name', 'Family last name', d.last_name, { auto: 'family-name' }) +
-      input('address', 'Street address', d.address, { auto: 'street-address', max: 160 }) + '<div class="row2">' +
-      input('city', 'City', d.city, { auto: 'address-level2' }) + input('state', 'State', d.state, { auto: 'address-level1', max: 40 }) +
-      input('zip', 'ZIP code', d.zip, { auto: 'postal-code', inputmode: 'numeric', max: 10 }) + '</div></fieldset>' +
+      '<fieldset class="sec"><legend>Family</legend>' + famInner + '</fieldset>' +
       parent('father', d.father, 'Father') + parent('mother', d.mother, 'Mother') +
       '<p class="small muted" style="margin-top:-8px">Fill in at least one parent; leave the other blank if it doesn\'t apply.</p>' +
-      '<fieldset class="sec"><legend>Emergency contacts</legend><p class="small muted" style="margin:4px 0 0">Someone other than the parents, in case we can\'t reach you.</p>' + d.emergency.map(function (e, n) {
-        return '<div class="row2" style="margin-top:8px">' + input('emergency.' + n + '.name', 'Name', e.name, { optional: n > 0 }) + input('emergency.' + n + '.phone', 'Phone', e.phone, { type: 'tel', inputmode: 'tel', optional: n > 0, max: 40 }) +
-          input('emergency.' + n + '.relation', 'Relationship', e.relation, { optional: true, max: 60 }) + '</div>';
-      }).join('') + '</fieldset>' +
+      window.RegForm.custom(S.info.form, 'parents').map(function (q) { return question(q, 'custom.' + q.id, d.custom[q.id]); }).join('') +
+      emerg +
       '<fieldset class="sec"><legend>Campers</legend>' + d.campers.map(kid).join('') + '<p><button type="button" id="addkid">+ Add another camper</button></p></fieldset>' +
-      '<fieldset class="sec"><legend>Anything else?</legend><label class="field">Notes for the camp office <span class="small muted">(optional)</span><textarea data-k="notes" maxlength="2000" rows="3">' + esc(d.notes || '') + '</textarea></label></fieldset>' +
+      (other ? '<fieldset class="sec"><legend>Anything else?</legend>' + other + '</fieldset>' : '') +
+      (pl.length ? '<fieldset class="sec"><legend>Payment plan</legend><div class="sessions" data-plan>' + pl.map(function (p) {
+        return '<label class="check" style="align-items:flex-start"><input type="radio" name="plan" value="' + esc(p.id) + '"' + (d.payment_plan === p.id ? ' checked' : '') + '><span><strong>' + esc(p.name) + '</strong>' + (p.description ? '<span class="small muted" style="display:block;font-weight:400;white-space:pre-line">' + esc(p.description) + '</span>' : '') + '</span></label>';
+      }).join('') + '</div></fieldset>' : '') +
       '<fieldset class="sec"><legend>Agreement</legend>' + (i.agreement ? '<div class="consent-text agree">' + esc(i.agreement) + '</div>' : '') +
       '<label class="check" style="margin-top:12px"><input type="checkbox" id="agree"><span>' + (i.agreement ? 'I have read and agree to the above.' : 'The information in this application is correct.') + '</span></label>' +
       '<label class="field">Type your full name to sign<input type="text" id="sig" maxlength="200" autocomplete="name" value="' + esc((S.app && S.app.signature) || '') + '"></label></fieldset>' +
@@ -195,17 +224,22 @@
     });
     f.onsubmit = function (e) { e.preventDefault(); submit(); };
   }
+  function setPath(d, pathStr, v) {
+    var path = pathStr.split('.'), o = d;
+    for (var n = 0; n < path.length - 1; n++) { var key = /^\d+$/.test(path[n]) ? +path[n] : path[n]; if (o[key] == null) o[key] = /^\d+$/.test(path[n + 1]) ? [] : {}; o = o[key]; }
+    o[path[path.length - 1]] = v;
+  }
   function collect() {
-    var d = { father: {}, mother: {}, emergency: [], campers: [] };
-    [].forEach.call($app.querySelectorAll('[data-k]'), function (el) {
-      var path = el.dataset.k.split('.'), o = d;
-      for (var n = 0; n < path.length - 1; n++) { var key = /^\d+$/.test(path[n]) ? +path[n] : path[n]; if (o[key] == null) o[key] = /^\d+$/.test(path[n + 1]) ? [] : {}; o = o[key]; }
-      o[path[path.length - 1]] = el.value.trim();
-    });
+    var d = { father: {}, mother: {}, emergency: [], campers: [], custom: {} };
+    [].forEach.call($app.querySelectorAll('[data-k]'), function (el) { setPath(d, el.dataset.k, el.value.trim()); });
+    [].forEach.call($app.querySelectorAll('[data-multi]'), function (box) { setPath(d, box.dataset.multi, [].filter.call(box.querySelectorAll('input'), function (x) { return x.checked; }).map(function (x) { return x.value; })); });
+    [].forEach.call($app.querySelectorAll('.kid'), function (el) { var n = +el.dataset.kid; d.campers[n] = d.campers[n] || {}; d.campers[n].custom = d.campers[n].custom || {}; });
     [].forEach.call($app.querySelectorAll('[data-sessions]'), function (box) {
       var n = +box.dataset.sessions; d.campers[n] = d.campers[n] || {};
       d.campers[n].sessions = [].filter.call(box.querySelectorAll('input'), function (x) { return x.checked; }).map(function (x) { return x.value; });
     });
+    var pick = $app.querySelector('[data-plan] input:checked');
+    if (pick) { var pl = plans().find(function (p) { return p.id === pick.value; }); d.payment_plan = pick.value; d.payment_plan_name = pl ? pl.name : ''; }
     d.campers = d.campers.filter(Boolean); d.emergency = d.emergency.filter(Boolean);
     return d;
   }
@@ -226,31 +260,39 @@
     if (document.getElementById('saved')) document.getElementById('saved').textContent = 'Saving…';
     S.saving = setTimeout(function () { run().catch(function () { }); }, 800);
   }
+  var labelOf = function (el) { var l = el.closest('label'); var t = l ? (l.querySelector('span') || l.firstChild).textContent : ''; return String(t).replace(/\(optional\)/, '').trim(); };
   function problems(d) {
     var out = [];
-    var need = function (el) { return el && !el.value.trim(); };
     [].forEach.call($app.querySelectorAll('.bad-field'), function (x) { x.classList.remove('bad-field'); });
-    var mark = function (sel) { var el = $app.querySelector(sel); if (el) el.classList.add('bad-field'); return el; };
-    if (!d.last_name) { out.push('the family last name'); mark('[data-k="last_name"]'); }
-    if (!d.address || !d.city || !d.zip) { out.push('your address'); ['address', 'city', 'zip'].forEach(function (k) { if (!d[k]) mark('[data-k="' + k + '"]'); }); }
-    var hasParent = ['father', 'mother'].some(function (w) { return d[w].first && d[w].phone && d[w].email; });
-    if (!hasParent) { out.push('at least one parent\'s name, cell phone and email'); ['first', 'phone', 'email'].forEach(function (k) { if (!d.father[k]) mark('[data-k="father.' + k + '"]'); }); }
-    ['father', 'mother'].forEach(function (w) { if (d[w].email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(d[w].email)) { out.push('a valid ' + w + '\'s email'); mark('[data-k="' + w + '.email"]'); } });
-    if (!d.emergency[0] || !d.emergency[0].name || !d.emergency[0].phone) { out.push('an emergency contact'); mark('[data-k="emergency.0.name"]'); mark('[data-k="emergency.0.phone"]'); }
-    d.campers.forEach(function (k, n) {
-      var miss = [];
-      ['first', 'dob', 'grade', 'gender'].forEach(function (f) { if (!k[f]) { miss.push(f); mark('[data-k="campers.' + n + '.' + f + '"]'); } });
-      if (S.info.sessions.length && !(k.sessions || []).length) miss.push('session');
-      if (miss.length) out.push('camper ' + (n + 1) + '\'s ' + miss.map(function (m) { return { first: 'first name', dob: 'date of birth' }[m] || m; }).join(', '));
+    var mark = function (el) { if (el) el.classList.add('bad-field'); };
+    [].forEach.call($app.querySelectorAll('[data-req]'), function (el) {
+      if (el.value.trim()) return;
+      mark(el);
+      var kidEl = el.closest('.kid');
+      out.push((kidEl ? 'camper ' + (+kidEl.dataset.kid + 1) + '\'s ' : /^emergency/.test(el.dataset.k || '') ? 'an emergency contact\'s ' : '') + labelOf(el).toLowerCase());
     });
+    [].forEach.call($app.querySelectorAll('[data-multireq]'), function (box) {
+      if (!box.querySelector('input:checked')) { var kidEl = box.closest('.kid'); out.push((kidEl ? 'camper ' + (+kidEl.dataset.kid + 1) + '\'s ' : '') + box.dataset.multireq.toLowerCase()); }
+    });
+    // At least one parent with every parent question the camp requires.
+    var need = ['first', 'email'].concat(F('parent.phone').mode === 'required' ? ['phone'] : []);
+    var full = function (w) { return need.every(function (k) { return d[w][k]; }); };
+    if (!full('father') && !full('mother')) {
+      var w = d.mother.first && !d.father.first ? 'mother' : 'father';
+      out.push('at least one parent\'s ' + need.map(function (k) { return { first: 'first name', email: 'email', phone: 'cell phone' }[k]; }).join(', '));
+      need.forEach(function (k) { if (!d[w][k]) mark($app.querySelector('[data-k="' + w + '.' + k + '"]')); });
+    }
+    ['father', 'mother'].forEach(function (w) { if (d[w].email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(d[w].email)) { out.push('a valid ' + w + '\'s email'); mark($app.querySelector('[data-k="' + w + '.email"]')); } });
+    if (S.info.sessions.length && asks('camper.sessions') && F('camper.sessions').mode === 'required') d.campers.forEach(function (k, n) { if (!(k.sessions || []).length) out.push('camper ' + (n + 1) + '\'s sessions'); });
+    if (plans().length && !d.payment_plan) out.push('a payment plan');
     if (!document.getElementById('agree').checked) out.push('the agreement checkbox');
-    if (!document.getElementById('sig').value.trim()) { out.push('your signature'); mark('#sig'); }
+    if (!document.getElementById('sig').value.trim()) { out.push('your signature'); mark(document.getElementById('sig')); }
     return out;
   }
   function submit() {
     var d = collect(), p = problems(d);
+    var old = document.querySelector('.formerr'); if (old) old.remove();
     if (p.length) {
-      var box = document.querySelector('#appf + .error, .formerr'); if (box) box.remove();
       var div = document.createElement('div'); div.className = 'error formerr'; div.textContent = 'Please fill in ' + p.join('; ') + '.';
       var btn = document.querySelector('#appf button.primary'); btn.parentNode.insertBefore(div, btn);
       var first = $app.querySelector('.bad-field'); if (first) first.focus();
@@ -262,7 +304,10 @@
       return sb.from('applications').update({ status: 'submitted' }).eq('id', S.app.id).select().single();
     }).then(function (r) {
       if (r.error) throw r.error;
-      S.app = r.data;
+      // Read it back: camps that don't review applications accept them straight away.
+      var sent = Object.assign({}, S.app, r.data);
+      return sb.from('applications').select('*').eq('id', S.app.id).maybeSingle().then(function (x) { S.app = Object.assign(sent, (x && x.data) || {}); });
+    }).then(function () {
       // Confirmation email (sent once; the application is already saved if this fails).
       sb.auth.getSession().then(function (x) {
         return fetch(cfg.supabaseUrl + '/functions/v1/notify', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + x.data.session.access_token, apikey: cfg.supabaseAnonKey }, body: JSON.stringify({ action: 'application_submitted', id: S.app.id }) });
@@ -273,7 +318,7 @@
 
   // ---------- After sending ----------
   function status() {
-    var a = S.app, d = a.data || {}, i = S.info;
+    var a = S.app, d = a.data || {}, i = S.info, pay = i.payment || {};
     var head = {
       submitted: ['We received your application', 'The camp office will review it and email ' + esc(a.email) + '.'],
       waitlisted: ['You\'re on the waiting list', 'We\'ll email ' + esc(a.email) + ' if a place opens up.'],
@@ -281,12 +326,17 @@
       declined: ['We\'re not able to offer a place', 'We\'re sorry we couldn\'t offer a place this time.'],
       withdrawn: ['Application withdrawn', '']
     }[a.status] || ['Application', ''];
-    var sess = {}; i.sessions.forEach(function (s) { sess[s.id] = s.name; });
+    var sess = {}; i.sessions.forEach(function (x) { sess[x.id] = x.name; });
+    var plan = plans().find(function (p) { return p.id === d.payment_plan; });
+    var payNow = plan && (a.status === 'accepted' || (pay.show === 'after_send' && (a.status === 'submitted' || a.status === 'waitlisted')));
     show('<h1>' + esc(i.name) + '</h1><div class="status"><h2 style="margin:0 0 6px">' + head[0] + '</h2><p style="margin:0">' + head[1] + '</p></div>' +
+      (payNow ? '<div class="card" style="margin-top:16px"><h2 style="margin-top:0">Payment: ' + esc(plan.name) + '</h2>' + (plan.description ? '<p style="white-space:pre-line">' + esc(plan.description) + '</p>' : '') +
+        (plan.link ? '<p><a class="btn primary" href="' + esc(plan.link) + '" target="_blank" rel="noopener">Pay now</a></p><p class="small muted">Payments are made through ' + esc(i.name) + '\'s payment page.</p>' : '') + '</div>' : '') +
       '<h2 style="margin-top:26px">Your application</h2><dl class="sum">' +
       '<dt>Family</dt><dd>' + esc(d.last_name) + (d.address ? ', ' + esc([d.address, d.city, d.state, d.zip].filter(Boolean).join(', ')) : '') + '</dd>' +
-      ['father', 'mother'].filter(function (w) { return d[w] && d[w].first; }).map(function (w) { return '<dt>' + (w === 'father' ? 'Father' : 'Mother') + '</dt><dd>' + esc(d[w].first) + ' · ' + esc(d[w].phone || '') + ' · ' + esc(d[w].email || '') + '</dd>'; }).join('') +
+      ['father', 'mother'].filter(function (w) { return d[w] && d[w].first; }).map(function (w) { return '<dt>' + (w === 'father' ? 'Father' : 'Mother') + '</dt><dd>' + esc([d[w].first, d[w].phone, d[w].email].filter(Boolean).join(' · ')) + '</dd>'; }).join('') +
       '<dt>Campers</dt>' + (d.campers || []).map(function (k) { return '<dd>' + esc(k.first + ' ' + (k.last || d.last_name || '')) + (k.grade ? ', ' + esc(k.grade) : '') + ((k.sessions || []).length ? ' · ' + esc(k.sessions.map(function (x) { return sess[x] || ''; }).filter(Boolean).join(' & ')) : '') + '</dd>'; }).join('') +
+      (plan ? '<dt>Payment plan</dt><dd>' + esc(plan.name) + '</dd>' : '') +
       '<dt>Sent</dt><dd>' + esc(a.submitted_at ? new Date(a.submitted_at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : '') + ' · signed by ' + esc(a.signature || '') + '</dd></dl>' +
       (i.contact ? '<p>Need to change something? Email <a href="mailto:' + esc(i.contact) + '">' + esc(i.contact) + '</a>.</p>' : '') +
       '<p class="small muted">Signed in as ' + esc(S.user.email) + ' · <a href="#" id="out">Sign out</a></p>');

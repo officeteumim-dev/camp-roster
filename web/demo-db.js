@@ -579,8 +579,17 @@
             mother_first: (d.mother || {}).first || null, mother_phone: (d.mother || {}).phone || null, mother_email: (d.mother || {}).email || null, address: d.address || null, city: d.city || null, state: d.state || null, zip: d.zip || null,
             emergency_contacts: (d.emergency || []).filter(function (e) { return e && e.name; }).map(function (e) { return [e.name, e.relation, e.phone].filter(Boolean).join(', '); }), disclosures: {}, active: true, applied_at: ap.submitted_at, created_at: now, updated_at: now });
         }
+        var form = (((db.camps[0].settings || {}).registration || {}).camper || {}).form || {}, qs = form.custom || [];
+        var txt = function (v) { return Array.isArray(v) ? v.join(', ') : (v == null ? '' : String(v)); };
+        var extra = {};
+        qs.filter(function (q) { return q.section !== 'camper'; }).forEach(function (q) { var v = txt((d.custom || {})[q.id]); if (v) extra[q.label] = v; });
+        if (d.payment_plan_name) extra['Payment plan'] = d.payment_plan_name;
+        if (d.notes) extra['Registration notes'] = d.notes;
+        var famRow = db.families.find(function (f) { return f.id === fam; }); if (famRow) famRow.disclosures = Object.assign({}, famRow.disclosures, extra);
+        db.camper_fields = db.camper_fields || [];
         (d.campers || []).forEach(function (k, n) {
           var id = 'cmp-online-' + ap.id + '-' + n;
+          qs.filter(function (q) { return q.section === 'camper'; }).forEach(function (q) { var v = txt((k.custom || {})[q.id]); if (v && db.perm_items.some(function (i) { return i.key === 'f_reg_' + q.id; })) db.camper_fields.push({ camper_id: id, camp_id: CAMP, item_key: 'f_reg_' + q.id, value: v.slice(0, 500), updated_by: 'registration form' }); });
           db.campers.push({ id: id, camp_id: CAMP, family_id: fam, external_id: null, first_name: k.first, last_name: k.last || d.last_name || '', date_of_birth: k.dob || null, gender: k.gender || null, grade: k.grade || null, hebrew_name: k.hebrew_name || null, derived: false, active: true, created_at: now, updated_at: now });
           (k.sessions || []).forEach(function (sid) { if (db.sessions.some(function (x) { return x.id === sid; })) db.enrollments.push({ camper_id: id, session_id: sid, camp_id: CAMP }); });
         });
@@ -590,10 +599,23 @@
       },
       set_registration: function (a) {
         if (!canAny('applications', 'change')) notAllowed();
-        var v = a.p_settings, out = { enabled: !!v.enabled };
+        var v = a.p_settings, out = { enabled: !!v.enabled, approval: v.approval !== false };
         ['opens_on', 'closes_on', 'intro', 'agreement'].forEach(function (k) { if (v[k] && String(v[k]).trim()) out[k] = String(v[k]).trim(); });
         if (Array.isArray(v.sessions)) out.sessions = v.sessions;
+        var form = v.form || {};
+        out.form = { builtin: form.builtin || {}, custom: (form.custom || []).filter(function (q) { return /^[a-z0-9]{4,24}$/.test(q.id) && String(q.label || '').trim(); }) };
+        out.payment = { plans: ((v.payment || {}).plans || []).filter(function (p) { return p.name; }).map(function (p) { return { id: p.id, name: p.name, description: p.description || undefined, link: /^https:\/\/\S+$/.test(p.link || '') ? p.link : undefined }; }),
+          show: (v.payment || {}).show === 'after_send' ? 'after_send' : 'after_accept' };
         var c = db.camps[0]; c.settings = Object.assign({}, c.settings); c.settings.registration = Object.assign({}, c.settings.registration); c.settings.registration[a.p_kind] = out;
+        // Camper questions become camper details.
+        out.form.custom.filter(function (q) { return q.section === 'camper'; }).forEach(function (q) {
+          var key = 'f_reg_' + q.id, it = db.perm_items.find(function (i) { return i.key === key; });
+          if (it) it.label = q.label.slice(0, 80);
+          else {
+            db.perm_items.push({ camp_id: CAMP, key: key, label: q.label.slice(0, 80), help: 'Asked on the registration form', kind: 'field', sort: 200 });
+            if (!db.permissions.some(function (x) { return x.role_key === 'office' && x.item_key === key; })) db.permissions.push({ camp_id: CAMP, role_key: 'office', item_key: key, can_see: true, can_change: true });
+          }
+        });
         save(); return out;
       },
       report_now: function () {

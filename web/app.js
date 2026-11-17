@@ -1105,7 +1105,13 @@
           par('father', 'Father') + par('mother', 'Mother') +
           row('Address', esc([d.address, d.city, [d.state, d.zip].filter(Boolean).join(' ')].filter(Boolean).join(', '))) +
           row('Emergency contacts', (d.emergency || []).filter(function (e) { return e && e.name; }).map(function (e) { return '<div>' + esc([e.name, e.relation, e.phone].filter(Boolean).join(', ')) + '</div>'; }).join('')) +
-          row('Notes from the family', d.notes ? '<span style="white-space:pre-line">' + esc(d.notes) + '</span>' : '') + '</table></div>';
+          row('Notes from the family', d.notes ? '<span style="white-space:pre-line">' + esc(d.notes) + '</span>' : '') +
+          window.RegForm.custom(((S.camp.settings || {}).registration || {}).camper && S.camp.settings.registration.camper.form).map(function (q) {
+            var show = function (v) { return Array.isArray(v) ? v.join(', ') : v; };
+            if (q.section === 'camper') { var vals = (d.campers || []).map(function (k) { var v = show((k.custom || {})[q.id]); return v ? esc(k.first) + ': ' + esc(v) : ''; }).filter(Boolean); return row(q.label, vals.join('<br>')); }
+            return row(q.label, esc(show((d.custom || {})[q.id]) || ''));
+          }).join('') +
+          row('Payment plan', esc(d.payment_plan_name || '')) + '</table></div>';
         if (edit && open) {
           html += '<div class="card"><h2 style="margin-top:0">Decide</h2>' +
             (matches.length ? '<p><strong>This may be a family already in your roster:</strong></p>' + matches.map(function (m) {
@@ -1128,29 +1134,107 @@
       });
     }).catch(fail);
   }
+  // Online registration setup: on/off, dates, review, sessions, the questions, payment plans, wording.
   function registrationSetup() {
-    var reg = ((S.camp.settings || {}).registration || {}).camper || {}, chosen = reg.sessions;
-    $main.innerHTML = '<p class="noprint"><a href="#applications">← Applications</a></p><h1>Online registration</h1>' +
-      '<p class="muted" style="max-width:760px">Parents sign in, fill in one application for the family, and sign it. Nothing reaches your roster until you accept it under Applications. While this is off, nothing changes: Camp Flow and its daily import work as they do now.</p>' +
-      '<form id="regf" class="card"><label class="check"><input type="checkbox" id="r_on"' + (reg.enabled ? ' checked' : '') + '><span><strong>Accept applications online</strong></span></label>' +
-      '<div class="row" style="gap:14px;flex-wrap:wrap"><label class="field">Opens on <span class="small muted">(blank = right away)</span><input type="date" id="r_open" value="' + esc(reg.opens_on || '') + '"></label>' +
-      '<label class="field">Closes after <span class="small muted">(blank = no end date)</span><input type="date" id="r_close" value="' + esc(reg.closes_on || '') + '"></label></div>' +
-      '<fieldset class="cols"><legend>Sessions parents can choose</legend>' + (S.sessions.length ? S.sessions.map(function (x) { return '<label class="check"><input type="checkbox" data-sess="' + x.id + '"' + (!chosen || chosen.indexOf(x.id) >= 0 ? ' checked' : '') + '><span>' + esc(x.name) + (x.starts_on ? ' <span class="small muted">' + esc(x.starts_on) + (x.ends_on ? ' to ' + esc(x.ends_on) : '') + '</span>' : '') + '</span></label>'; }).join('') : '<p class="small muted">No sessions yet. Add them in Settings, or they arrive with Camp Flow\'s camper report.</p>') + '</fieldset>' +
-      '<label class="field">Welcome text <span class="small muted">(shown at the top of the application)</span><textarea id="r_intro" rows="3" maxlength="4000">' + esc(reg.intro || '') + '</textarea></label>' +
-      '<label class="field">Agreement parents sign <span class="small muted">(camp policies, payment terms, release; leave blank for a simple "this information is correct")</span><textarea id="r_agree" rows="8" maxlength="20000">' + esc(reg.agreement || '') + '</textarea></label>' +
-      '<div class="row"><button class="primary">Save</button>' + (S.demo ? '' : '<a class="btn" href="' + esc(regLink()) + '" target="_blank" rel="noopener">Preview the parents\' page</a>') + '</div></form>';
-    document.getElementById('regf').onsubmit = function (e) {
-      e.preventDefault();
-      var boxes = [].slice.call($main.querySelectorAll('[data-sess]'));
-      var sess = boxes.filter(function (b) { return b.checked; }).map(function (b) { return b.dataset.sess; });
-      if (document.getElementById('r_on').checked && boxes.length && !sess.length) return toast('Choose at least one session.');
-      var v = { enabled: document.getElementById('r_on').checked, opens_on: document.getElementById('r_open').value, closes_on: document.getElementById('r_close').value,
-        sessions: boxes.length && sess.length < boxes.length ? sess : null, intro: document.getElementById('r_intro').value, agreement: document.getElementById('r_agree').value };
-      DB.rpc('set_registration', { p_camp: S.camp.id, p_kind: 'camper', p_settings: v }).then(must).then(function (saved) {
+    var RF = window.RegForm;
+    var W = JSON.parse(JSON.stringify(((S.camp.settings || {}).registration || {}).camper || {}));
+    W.form = W.form || {}; W.form.builtin = W.form.builtin || {}; W.form.custom = W.form.custom || [];
+    W.payment = W.payment || {}; W.payment.plans = W.payment.plans || [];
+    var typeSel = function (t) { return RF.TYPES.map(function (x) { return '<option value="' + x[0] + '"' + (t === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join(''); };
+    function draw() {
+      var chosen = W.sessions;
+      var sec = function (key, label) {
+        var std = RF.BUILTIN.filter(function (b) { return b.section === key; }).map(function (b) {
+          var f = RF.field(W.form, b.key), o = W.form.builtin[b.key] || {};
+          return '<li class="qrow"><input type="text" data-blabel="' + b.key + '" value="' + esc(o.label || '') + '" placeholder="' + esc(b.label) + '" aria-label="Question" maxlength="120">' +
+            (b.lock ? '<span class="small muted lockq">Always asked</span>' : '<select data-bmode="' + b.key + '" aria-label="' + esc(b.label) + '"><option value="required"' + (f.mode === 'required' ? ' selected' : '') + '>Required</option><option value="optional"' + (f.mode === 'optional' ? ' selected' : '') + '>Optional</option><option value="hidden"' + (f.mode === 'hidden' ? ' selected' : '') + '>Not asked</option></select>') +
+            (b.note ? '<div class="small muted qnote">' + esc(b.note) + '</div>' : '') +
+            (b.choices ? '<label class="field qnote">Choices, one per line<textarea data-bopts="' + b.key + '" rows="3">' + esc((f.options || []).join('\n')) + '</textarea></label>' : '') + '</li>';
+        }).join('');
+        var mine = W.form.custom.filter(function (q) { return q.section === key; });
+        var own = mine.map(function (q) {
+          return '<li class="tile qtile" data-qid="' + q.id + '"><span class="grip" tabindex="0" role="button" aria-label="Drag to move this question">' + svg('<circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/>') + '</span>' +
+            '<div class="qbody"><div class="row" style="gap:8px;flex-wrap:wrap"><input type="text" data-q="label" value="' + esc(q.label || '') + '" placeholder="Your question" maxlength="200" style="flex:2;min-width:200px">' +
+            '<select data-q="type">' + typeSel(q.type || 'text') + '</select><label class="check" style="margin:0"><input type="checkbox" data-q="required"' + (q.required ? ' checked' : '') + '><span>Required</span></label>' +
+            '<button type="button" data-qdel>Remove</button></div>' +
+            '<label class="field qopts"' + (q.type === 'choice' || q.type === 'multi' ? '' : ' hidden') + '>Choices, one per line<textarea data-q="options" rows="3">' + esc((q.options || []).join('\n')) + '</textarea></label>' +
+            '<input type="text" data-q="help" value="' + esc(q.help || '') + '" placeholder="Help text under the question (optional)" maxlength="500" style="margin-top:6px"></div></li>';
+        }).join('');
+        return '<div class="qsec"><h3>' + label + '</h3><ul class="qlist">' + std + '</ul>' + (own ? '<p class="small muted" style="margin:8px 0 4px">Your questions' + (key === 'camper' ? ' (saved as camper details: on the Roster and in reports)' : '') + '</p><ul class="collist" id="qs_' + key + '">' + own + '</ul>' : '') +
+          '<button type="button" data-addq="' + key + '">+ Add a question</button></div>';
+      };
+      $main.innerHTML = '<p class="noprint"><a href="#applications">← Applications</a></p><h1>Online registration</h1>' +
+        '<p class="muted" style="max-width:760px">Parents sign in, fill in one application for the family, and sign it. While this is off, nothing changes: Camp Flow and its daily import work as they do now.</p>' +
+        '<form id="regf">' +
+        '<div class="card"><h2 style="margin-top:0">When and how</h2><label class="check"><input type="checkbox" id="r_on"' + (W.enabled ? ' checked' : '') + '><span><strong>Accept applications online</strong></span></label>' +
+        '<div class="row" style="gap:14px;flex-wrap:wrap"><label class="field">Opens on <span class="small muted">(blank = right away)</span><input type="date" id="r_open" value="' + esc(W.opens_on || '') + '"></label>' +
+        '<label class="field">Closes after <span class="small muted">(blank = no end date)</span><input type="date" id="r_close" value="' + esc(W.closes_on || '') + '"></label></div>' +
+        '<label class="check"><input type="checkbox" id="r_appr"' + (W.approval === false ? '' : ' checked') + '><span><strong>Review each application before it\'s accepted</strong><span class="small muted" style="display:block;font-weight:400">Recommended. If off, applications are accepted into the roster as soon as they\'re sent (into the family with the same email if there is one).</span></span></label>' +
+        '<fieldset class="cols"><legend>Sessions parents can choose</legend>' + (S.sessions.length ? S.sessions.map(function (x) { return '<label class="check"><input type="checkbox" data-sess="' + x.id + '"' + (!chosen || chosen.indexOf(x.id) >= 0 ? ' checked' : '') + '><span>' + esc(x.name) + (x.starts_on ? ' <span class="small muted">' + esc(x.starts_on) + (x.ends_on ? ' to ' + esc(x.ends_on) : '') + '</span>' : '') + '</span></label>'; }).join('') : '<p class="small muted">No sessions yet. Add them in Settings, or they arrive with Camp Flow\'s camper report.</p>') + '</fieldset></div>' +
+        '<div class="card"><h2 style="margin-top:0">Questions</h2><p class="small muted">Rename any question, choose whether it\'s required, optional or not asked, and add your own. Drag your questions by the dots to reorder them.</p>' +
+        RF.SECTIONS.map(function (x) { return sec(x[0], x[1]); }).join('') + '</div>' +
+        '<div class="card"><h2 style="margin-top:0">Payment plans</h2><p class="small muted">Payments go through your own payment processor. Parents pick a plan on the form; give each plan a link to your payment page.</p><div id="plans">' +
+        W.payment.plans.map(function (p) {
+          return '<div class="plan" data-pid="' + p.id + '"><div class="row" style="gap:8px;flex-wrap:wrap"><input type="text" data-p="name" value="' + esc(p.name || '') + '" placeholder="Plan name, e.g. Pay in full" maxlength="120" style="flex:1;min-width:180px">' +
+            '<input type="url" data-p="link" value="' + esc(p.link || '') + '" placeholder="https://your payment page" maxlength="500" style="flex:2;min-width:220px"><button type="button" data-pdel>Remove</button></div>' +
+            '<textarea data-p="description" rows="2" maxlength="1000" placeholder="What it is, e.g. 3 payments: May 1, June 1, July 1">' + esc(p.description || '') + '</textarea></div>';
+        }).join('') + '</div><p><button type="button" id="addplan">+ Add a payment plan</button></p>' +
+        '<fieldset class="cols"><legend>Show the "Pay now" link</legend><label class="check"><input type="radio" name="payshow" value="after_accept"' + (W.payment.show !== 'after_send' ? ' checked' : '') + '><span>After the application is accepted</span></label>' +
+        '<label class="check"><input type="radio" name="payshow" value="after_send"' + (W.payment.show === 'after_send' ? ' checked' : '') + '><span>Right after the application is sent</span></label></fieldset></div>' +
+        '<div class="card"><h2 style="margin-top:0">Wording</h2><label class="field">Welcome text <span class="small muted">(shown at the top of the application)</span><textarea id="r_intro" rows="3" maxlength="4000">' + esc(W.intro || '') + '</textarea></label>' +
+        '<label class="field">Agreement parents sign <span class="small muted">(camp policies, payment terms, release; leave blank for a simple "this information is correct")</span><textarea id="r_agree" rows="8" maxlength="20000">' + esc(W.agreement || '') + '</textarea></label></div>' +
+        '<div class="row savebar"><button class="primary">Save</button>' + (S.demo ? '' : '<a class="btn" href="' + esc(regLink()) + '" target="_blank" rel="noopener">Preview the parents\' page</a>') + '</div></form>';
+      RF.SECTIONS.forEach(function (x) { var ul = document.getElementById('qs_' + x[0]); if (ul) dragTiles(ul); });
+      $main.querySelectorAll('[data-q="type"]').forEach(function (sel) { sel.onchange = function () { sel.closest('li').querySelector('.qopts').hidden = !(sel.value === 'choice' || sel.value === 'multi'); }; });
+      $main.querySelectorAll('[data-addq]').forEach(function (b) { b.onclick = function () { read(); W.form.custom.push({ id: RF.newId(), section: b.dataset.addq, label: '', type: 'text', required: false }); draw(); var ins = $main.querySelectorAll('#qs_' + b.dataset.addq + ' [data-q="label"]'); ins[ins.length - 1].focus(); }; });
+      $main.querySelectorAll('[data-qdel]').forEach(function (b) { b.onclick = function () { read(); var id = b.closest('li').dataset.qid; W.form.custom = W.form.custom.filter(function (q) { return q.id !== id; }); draw(); }; });
+      document.getElementById('addplan').onclick = function () { read(); W.payment.plans.push({ id: RF.newId(), name: '' }); draw(); var ins = $main.querySelectorAll('[data-p="name"]'); ins[ins.length - 1].focus(); };
+      $main.querySelectorAll('[data-pdel]').forEach(function (b) { b.onclick = function () { read(); var id = b.closest('.plan').dataset.pid; W.payment.plans = W.payment.plans.filter(function (p) { return p.id !== id; }); draw(); }; });
+      document.getElementById('regf').onsubmit = function (e) { e.preventDefault(); save(); };
+    }
+    // Copy what's on screen into W (in screen order, so dragged questions keep their new places).
+    function read() {
+      var v = function (id) { var el = document.getElementById(id); return el ? el.value : ''; };
+      W.enabled = document.getElementById('r_on').checked; W.opens_on = v('r_open'); W.closes_on = v('r_close');
+      W.approval = document.getElementById('r_appr').checked; W.intro = v('r_intro'); W.agreement = v('r_agree');
+      var boxes = [].slice.call($main.querySelectorAll('[data-sess]')), sess = boxes.filter(function (b) { return b.checked; }).map(function (b) { return b.dataset.sess; });
+      W.sessions = boxes.length && sess.length < boxes.length ? sess : null; W._sessCount = sess.length; W._sessBoxes = boxes.length;
+      var bi = {};
+      RF.BUILTIN.forEach(function (b) {
+        var o = {}, lab = $main.querySelector('[data-blabel="' + b.key + '"]'), mode = $main.querySelector('[data-bmode="' + b.key + '"]'), opts = $main.querySelector('[data-bopts="' + b.key + '"]');
+        if (lab && lab.value.trim()) o.label = lab.value.trim();
+        if (mode && mode.value !== b.mode) o.mode = mode.value;
+        if (opts) { var list = opts.value.split('\n').map(function (x) { return x.trim(); }).filter(Boolean); if (list.join('|') !== RF.GRADES.join('|')) o.options = list; }
+        if (Object.keys(o).length) bi[b.key] = o;
+      });
+      W.form.builtin = bi;
+      W.form.custom = [].map.call($main.querySelectorAll('li[data-qid]'), function (li) {
+        var g = function (k) { return li.querySelector('[data-q="' + k + '"]'); }, old = W.form.custom.find(function (q) { return q.id === li.dataset.qid; }) || {};
+        return { id: li.dataset.qid, section: old.section, label: g('label').value.trim(), type: g('type').value, required: g('required').checked, help: g('help').value.trim(),
+          options: g('options').value.split('\n').map(function (x) { return x.trim(); }).filter(Boolean) };
+      });
+      W.payment.plans = [].map.call($main.querySelectorAll('.plan'), function (el) {
+        var g = function (k) { return el.querySelector('[data-p="' + k + '"]').value.trim(); };
+        return { id: el.dataset.pid, name: g('name'), link: g('link'), description: g('description') };
+      });
+      var ps = $main.querySelector('[name="payshow"]:checked'); W.payment.show = ps ? ps.value : 'after_accept';
+    }
+    function save() {
+      read();
+      if (W.enabled && W._sessBoxes && !W._sessCount) return toast('Choose at least one session.');
+      var bad = W.form.custom.find(function (q) { return !q.label || ((q.type === 'choice' || q.type === 'multi') && !q.options.length); });
+      if (bad) return toast(bad.label ? 'Add the choices for "' + bad.label + '".' : 'One of your questions has no wording. Fill it in or remove it.');
+      var badPlan = W.payment.plans.find(function (p) { return !p.name || (p.link && !/^https:\/\/\S+$/.test(p.link)); });
+      if (badPlan) return toast(badPlan.name ? 'The link for "' + badPlan.name + '" must start with https://' : 'Give each payment plan a name, or remove it.');
+      var out = JSON.parse(JSON.stringify(W)); delete out._sessCount; delete out._sessBoxes;
+      DB.rpc('set_registration', { p_camp: S.camp.id, p_kind: 'camper', p_settings: out }).then(must).then(function (saved) {
         S.camp.settings = S.camp.settings || {}; S.camp.settings.registration = S.camp.settings.registration || {}; S.camp.settings.registration.camper = saved;
+        return DB.from('perm_items').select('*').eq('camp_id', S.camp.id).order('sort').then(function (r) { if (!r.error) S.items = r.data; S.roster = null; return saved; });
+      }).then(function (saved) {
         toast(saved.enabled ? 'Saved. Online registration is on.' : 'Saved. Online registration is off.'); location.hash = '#applications';
       }).catch(fail);
-    };
+    }
+    draw();
   }
 
   // ---------- Daily registration report ----------
