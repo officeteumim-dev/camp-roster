@@ -1,0 +1,36 @@
+# Keeps the blank IRS W-4 and W-9 in web/irs/ current: the staff tax-form questionnaire fills these in the browser.
+# Runs monthly (the IRS publishes new versions, usually each January) and on demand.
+name: IRS forms
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 9 3 * *'
+permissions:
+  contents: write
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download
+        run: |
+          mkdir -p web/irs
+          for f in fw4 fw9; do
+            curl -fsSL --retry 3 -A "Mozilla/5.0 (camp roster form fetch)" -o "/tmp/$f.pdf" "https://www.irs.gov/pub/irs-pdf/$f.pdf"
+            head -c 5 "/tmp/$f.pdf" | grep -q '%PDF' || { echo "$f is not a PDF"; exit 1; }
+            cp "/tmp/$f.pdf" "web/irs/$f.pdf"
+          done
+          pip install --quiet pypdf
+          python3 - <<'PY'
+          import json, pypdf
+          out = {}
+          for f in ('fw4', 'fw9'):
+              r = pypdf.PdfReader(f'web/irs/{f}.pdf')
+              out[f] = {k: {'type': v.get('/FT'), 'states': [str(s) for s in (v.get('/_States_') or [])]} for k, v in (r.get_fields() or {}).items()}
+          json.dump(out, open('web/irs/fields.json', 'w'), indent=1, sort_keys=True)
+          PY
+      - name: Commit if changed
+        run: |
+          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web/irs
+          git diff --cached --quiet || git commit -m "Update blank IRS W-4 and W-9" && git push
