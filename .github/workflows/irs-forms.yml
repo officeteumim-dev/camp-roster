@@ -35,6 +35,8 @@ jobs:
           cp package/dist/pdf-lib.min.js "$GITHUB_WORKSPACE/web/vendor/pdf-lib-1.17.1.min.js"
           cp package/LICENSE.md "$GITHUB_WORKSPACE/web/vendor/pdf-lib-LICENSE.md"
           sha256sum "$GITHUB_WORKSPACE/web/vendor/pdf-lib-1.17.1.min.js"
+      - name: Check the questionnaire still matches the forms (if the IRS changed fields, stop and keep the current ones)
+        run: node --test tests/tax-fill.test.mjs
       - name: Commit if changed
         run: |
           git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

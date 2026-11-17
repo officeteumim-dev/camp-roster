@@ -48,7 +48,7 @@ Staff apply at `/register.html?camp=<slug>&kind=staff` (off until turned on unde
 
 **Staff roster** (`#staffroster`, "Staff roster" in Who can see what; office by default) lists everyone working at camp, separate from app logins: search, filter by position and session, choose columns, sort, export, add by hand, edit, "No longer on staff".
 
-**Tax forms:** a camp can ask for a W-4, a W-9, or either (the applicant chooses), with the application or after hiring. Applicants download the IRS form, fill it in and upload it to the private `tax-forms` bucket (`<camp>/<application>/<file>`); the app never stores an SSN as data. Only directors and roles with "Staff tax forms" (finance by default) can open them, through one-minute links. Declining an application deletes its form; hiring copies the reference to the staff record.
+**Tax forms:** a camp can ask for a W-4, a W-9, or either (the applicant chooses), with the application or after hiring. Applicants answer a short questionnaire and the app fills in and signs the official IRS form in their browser (`web/tax-fill.js` with pdf-lib, served from `web/vendor/`; blank forms in `web/irs/`, refreshed monthly by `.github/workflows/irs-forms.yml`, which refuses a new version whose fields no longer match), or they upload a form they filled in themselves. The finished PDF goes to the private `tax-forms` bucket (`<camp>/<application>/<file>`); the SSN exists only inside that PDF, never in the app's data. Only directors and roles with "Staff tax forms" (finance by default) can open them, through one-minute links. Declining an application deletes its form; hiring copies the reference to the staff record.
 
 ## Open to the public, by approval
 

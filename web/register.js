@@ -214,7 +214,7 @@
       '<fieldset class="sec"><legend>Agreement</legend>' + (i.agreement ? '<div class="consent-text agree">' + esc(i.agreement) + '</div>' : '') +
       '<label class="check" style="margin-top:12px"><input type="checkbox" id="agree"><span>' + (i.agreement ? 'I have read and agree to the above.' : 'The information in this application is correct.') + '</span></label>' +
       '<label class="field">Type your full name to sign<input type="text" id="sig" maxlength="200" autocomplete="name" value="' + esc((S.app && S.app.signature) || '') + '"></label></fieldset>' +
-      '<p><button class="primary" style="width:100%">Send application</button></p></form>');
+      '<p><button class="primary" id="sendapp" style="width:100%">Send application</button></p></form>');
     bindOut();
     var f = document.getElementById('appf');
     f.addEventListener('input', function () { save(); });
@@ -304,12 +304,12 @@
     var old = document.querySelector('.formerr'); if (old) old.remove();
     if (p.length) {
       var div = document.createElement('div'); div.className = 'error formerr'; div.textContent = 'Please fill in ' + p.join('; ') + '.';
-      var btn = document.querySelector('#appf button.primary'); btn.parentNode.insertBefore(div, btn);
+      var btn = document.getElementById('sendapp'); btn.parentNode.insertBefore(div, btn);
       var first = $app.querySelector('.bad-field'); if (first) first.focus();
       return;
     }
     clearTimeout(S.saving);
-    var btn2 = document.querySelector('#appf button.primary'); btn2.disabled = true; btn2.textContent = 'Sending…';
+    var btn2 = document.getElementById('sendapp'); btn2.disabled = true; btn2.textContent = 'Sending…';
     save(true).then(function () {
       return sb.from('applications').update({ status: 'submitted' }).eq('id', S.app.id).select().single();
     }).then(function (r) {
@@ -331,42 +331,119 @@
   // ---------- Tax form (W-4 / W-9): the filled-in IRS form, uploaded as a file ----------
   var IRS = { 'W-4': 'https://www.irs.gov/pub/irs-pdf/fw4.pdf', 'W-9': 'https://www.irs.gov/pub/irs-pdf/fw9.pdf' };
   function taxTypes() { return { w4: ['W-4'], w9: ['W-9'], choice: ['W-4', 'W-9'] }[S.info.tax_form] || []; }
+  // The tax form: answer a few questions and the app fills in and signs the official IRS form (in this browser;
+  // the SSN goes only into the PDF), or upload one already filled in.
   function taxSection(d) {
     var t = (d && d.tax_form) || {}, types = taxTypes(), chosen = t.type || (types.length === 1 ? types[0] : (S.taxType || ''));
+    var appd = (S.app && S.app.data) || d || {};
+    var q = function (id, label, val, extra) { return '<label class="field">' + label + '<input type="text" id="' + id + '" value="' + esc(val || '') + '" autocomplete="off"' + (extra || '') + '></label>'; };
+    var ssn = '<div class="row2">' + q('tx_ssn', 'Social Security number', '', ' inputmode="numeric" maxlength="11" placeholder="123-45-6789" spellcheck="false"') + q('tx_ssn2', 'Type it again', '', ' inputmode="numeric" maxlength="11" spellcheck="false"') + '</div>';
+    var addr = q('tx_addr', 'Street address', appd.address) + q('tx_csz', 'City, state and ZIP code', [appd.city, [appd.state, appd.zip].filter(Boolean).join(' ')].filter(Boolean).join(', '));
+    var w4 = '<div class="row2">' + q('tx_first', 'First name', appd.first) + q('tx_mi', 'Middle initial <span class="small muted">(optional)</span>', '', ' maxlength="1"') + '</div>' + q('tx_last', 'Last name', appd.last) +
+      '<p class="small muted" style="margin-top:-4px">Exactly as on your Social Security card.</p>' + ssn + addr +
+      '<div class="field" style="font-weight:700">Filing status</div><div class="sessions">' +
+      [['single', 'Single <span class="small muted">(most students)</span>, or married filing separately'], ['joint', 'Married filing jointly, or qualifying surviving spouse'], ['head', 'Head of household <span class="small muted">(unmarried and paying more than half the costs of a home for yourself and a qualifying person)</span>']].map(function (o, n) {
+        return '<label class="check"><input type="radio" name="tx_status" value="' + o[0] + '"' + (n === 0 ? ' checked' : '') + '><span>' + o[1] + '</span></label>'; }).join('') + '</div>' +
+      '<label class="check" style="margin-top:10px;align-items:flex-start"><input type="checkbox" id="tx_exempt"><span><strong>Exempt from withholding</strong><span class="small muted" style="display:block;font-weight:400">Only if you owed no federal income tax last year <em>and</em> expect to owe none this year (often true for students whose only income is summer pay). Not sure? Leave this unticked or ask a parent.</span></span></label>' +
+      '<div id="tx_more">' +
+      '<label class="check" style="align-items:flex-start"><input type="checkbox" id="tx_two"><span>I have exactly one other job at the same time <span class="small muted" style="display:block">(ticks Step 2(c); tick it on the W-4 for the other job too. More jobs than that: use the IRS estimator at irs.gov/W4App and enter extra withholding below.)</span></span></label>' +
+      '<details class="small" style="margin:8px 0"><summary>Dependents and other adjustments <span class="muted">(most students skip this)</span></summary>' +
+      '<p class="muted">Only if your total income will be $200,000 or less ($400,000 married filing jointly).</p><div class="row2">' + q('tx_kids', 'Qualifying children under 17', '', ' inputmode="numeric" maxlength="2"') + q('tx_deps', 'Other dependents', '', ' inputmode="numeric" maxlength="2"') + '</div>' +
+      '<div class="row2">' + q('tx_oinc', 'Other income, not from jobs ($ per year)', '', ' inputmode="decimal"') + q('tx_ded', 'Deductions beyond the standard ($ per year)', '', ' inputmode="decimal"') + q('tx_extra', 'Extra withholding ($ each pay period)', '', ' inputmode="decimal"') + '</div></details></div>' +
+      '<label class="check" style="align-items:flex-start"><input type="checkbox" id="tx_perjury"><span>Under penalties of perjury, I declare that this certificate, to the best of my knowledge and belief, is true, correct, and complete.</span></label>';
+    var w9 = q('tx_name', 'Your name, as shown on your income tax return', [appd.first, appd.last].filter(Boolean).join(' ')) + q('tx_biz', 'Business name <span class="small muted">(only if you have one)</span>', '') +
+      '<p class="small muted">Tax classification: Individual / sole proprietor.</p>' + ssn + addr +
+      '<label class="check" style="align-items:flex-start"><input type="checkbox" id="tx_perjury"><span>Under penalties of perjury, I certify that: (1) the number shown is my correct taxpayer identification number; (2) I am not subject to backup withholding; (3) I am a U.S. citizen or other U.S. person; and (4) any FATCA code entered is correct. <span class="small muted">If the IRS has told you that you\'re subject to backup withholding, don\'t sign here; contact the camp office.</span></span></label>';
     return '<fieldset class="sec" id="taxsec"><legend>Tax form</legend>' +
       (types.length > 1 ? '<p style="margin-top:4px">Which form? <span class="small muted">If you\'re not sure, ask the camp office.</span></p><div class="sessions">' +
         '<label class="check"><input type="radio" name="taxtype" value="W-4"' + (chosen === 'W-4' ? ' checked' : '') + '><span><strong>W-4</strong> <span class="small muted">I\'ll be an employee</span></span></label>' +
         '<label class="check"><input type="radio" name="taxtype" value="W-9"' + (chosen === 'W-9' ? ' checked' : '') + '><span><strong>W-9</strong> <span class="small muted">I\'ll be paid as an independent contractor</span></span></label></div>' : '') +
-      '<ol class="small" style="padding-left:20px;line-height:1.6"><li>Download the form' + (chosen ? ': <a href="' + IRS[chosen] + '" target="_blank" rel="noopener">IRS Form ' + chosen + ' (PDF)</a>' : ' (choose which one above)') + '.</li><li>Fill it in and sign it.</li><li>Upload it here as a PDF or a clear photo.</li></ol>' +
-      (t.path ? '<p><span class="chip good">Uploaded</span> ' + esc(t.type) + ': ' + esc(t.name || '') + '</p>' : '') +
-      '<label class="field">' + (t.path ? 'Replace it' : 'Upload your ' + (chosen || 'form')) + '<input type="file" id="taxfile" accept="application/pdf,image/*"></label>' +
-      '<p class="small muted">It includes your Social Security number, so only the camp\'s directors and the people they allow can see it.</p></fieldset>';
+      (t.path ? '<p><span class="chip good">Done</span> ' + esc(t.type) + ' ' + (t.filled ? 'filled in and signed' : 'uploaded') + (t.name && !t.filled ? ': ' + esc(t.name) : '') + '. <a href="#" id="taxredo">Do it again</a></p>' : '') +
+      (chosen && !t.path ? '<div id="taxq"><p class="small">Answer these and we\'ll fill in and sign the official IRS Form ' + chosen + ' for you.</p>' + (chosen === 'W-4' ? w4 : w9) +
+        '<label class="field">Type your full name to sign<input type="text" id="tx_sig" autocomplete="name" maxlength="120"></label><p class="small muted" style="margin-top:-6px">Date: ' + esc(new Date().toLocaleDateString('en-US')) + '</p>' +
+        '<div class="row" style="gap:8px;flex-wrap:wrap"><button type="button" id="taxpreview">Preview the form</button><button type="button" class="primary" id="taxsign">Sign and save my ' + chosen + '</button></div></div>' : '') +
+      (chosen && !t.path ? '<details class="small" style="margin-top:12px"><summary>Or upload a form you already filled in</summary><p>Download <a href="/irs/' + (chosen === 'W-4' ? 'fw4' : 'fw9') + '.pdf" target="_blank" rel="noopener">Form ' + chosen + '</a>, fill it in and sign it, then upload it as a PDF or a clear photo.</p><label class="field">Upload your ' + chosen + '<input type="file" id="taxfile" accept="application/pdf,image/*"></label></details>' : '') +
+      '<p class="small muted">Your form includes your Social Security number. Only the camp\'s directors and the people they allow can open it, and the number isn\'t stored anywhere else.</p></fieldset>';
+  }
+  // Read the questionnaire; returns { answers } or { problem }.
+  function taxAnswers(type) {
+    var v = function (id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; };
+    var ssn = v('tx_ssn'), a = { ssn: ssn, address: v('tx_addr'), cityStateZip: v('tx_csz'), signature: v('tx_sig'), email: S.user.email };
+    if (!window.TaxFill.validSsn(ssn)) return { problem: 'Check your Social Security number (9 digits).' };
+    if (window.TaxFill.ssnDigits(ssn) !== window.TaxFill.ssnDigits(v('tx_ssn2'))) return { problem: 'The two Social Security numbers don\'t match.' };
+    if (!a.address || !a.cityStateZip) return { problem: 'Fill in your address.' };
+    if (type === 'W-4') {
+      a.first = v('tx_first'); a.middle = v('tx_mi'); a.last = v('tx_last');
+      if (!a.first || !a.last) return { problem: 'Fill in your first and last name.' };
+      var st = $app.querySelector('[name="tx_status"]:checked'); a.status = st ? st.value : 'single';
+      a.exempt = document.getElementById('tx_exempt').checked;
+      if (!a.exempt) { a.twoJobs = document.getElementById('tx_two').checked; a.kids = +v('tx_kids') || 0; a.otherDeps = +v('tx_deps') || 0; a.otherIncome = v('tx_oinc').replace(/[$,]/g, ''); a.deductions = v('tx_ded').replace(/[$,]/g, ''); a.extra = v('tx_extra').replace(/[$,]/g, ''); }
+      if ([a.otherIncome, a.deductions, a.extra].some(function (x) { return x && !/^\d+(\.\d+)?$/.test(x); })) return { problem: 'Enter amounts as numbers, like 1500.' };
+    } else {
+      a.name = v('tx_name'); a.business = v('tx_biz'); a.requester = S.info.name;
+      if (!a.name) return { problem: 'Fill in your name.' };
+    }
+    if (!document.getElementById('tx_perjury').checked) return { problem: 'Tick the statement above your signature.' };
+    if (a.signature.length < 3) return { problem: 'Type your full name to sign.' };
+    return { answers: a };
+  }
+  var pdfLibReady = null;
+  function loadPdfLib() {
+    if (window.PDFLib) return Promise.resolve(window.PDFLib);
+    return pdfLibReady = pdfLibReady || new Promise(function (ok, no) { var sc = document.createElement('script'); sc.src = '/vendor/pdf-lib-1.17.1.min.js'; sc.onload = function () { ok(window.PDFLib); }; sc.onerror = function () { pdfLibReady = null; no(new Error('Couldn\'t load the form filler. Check your connection and try again.')); }; document.head.appendChild(sc); });
+  }
+  function makeTaxPdf(type, a) {
+    var now = new Date();
+    return Promise.all([loadPdfLib(), fetch('/irs/' + (type === 'W-4' ? 'fw4' : 'fw9') + '.pdf').then(function (r) { if (!r.ok) throw new Error('Couldn\'t load the IRS form.'); return r.arrayBuffer(); })]).then(function (x) {
+      return window.TaxFill.fill(x[0], x[1], type, a, { date: now.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }), stamp: now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' ' + now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }) });
+    });
   }
   function bindTax(afterHire) {
-    [].forEach.call($app.querySelectorAll('[name="taxtype"]'), function (r) { r.onchange = function () { S.taxType = r.value; var box = document.getElementById('taxsec'); if (box) { box.outerHTML = taxSection(afterHire ? S.app.data : collect()); bindTax(afterHire); } }; });
-    var inp = document.getElementById('taxfile'); if (!inp) return;
-    inp.onchange = function () {
-      var file = inp.files[0]; if (!file) return;
-      var types = taxTypes(), picked = $app.querySelector('[name="taxtype"]:checked'), type = types.length === 1 ? types[0] : picked && picked.value;
-      if (!type) { alert('Choose W-4 or W-9 first.'); inp.value = ''; return; }
-      if (file.size > 10 * 1024 * 1024) { alert('That file is over 10 MB. Try a PDF, or a smaller photo.'); inp.value = ''; return; }
-      inp.disabled = true;
+    var redraw = function () { var box = document.getElementById('taxsec'); if (box) { box.outerHTML = taxSection(afterHire ? S.app.data : collect()); bindTax(afterHire); } };
+    [].forEach.call($app.querySelectorAll('[name="taxtype"]'), function (r) { r.onchange = function () { S.taxType = r.value; redraw(); }; });
+    var redo = document.getElementById('taxredo'); if (redo) redo.onclick = function (e) { e.preventDefault(); S.app.data = Object.assign({}, S.app.data, { tax_form: null }); if (!afterHire) save(true); redraw(); };
+    var ex = document.getElementById('tx_exempt'); if (ex) ex.onchange = function () { document.getElementById('tx_more').hidden = ex.checked; };
+    var typeNow = function () { var types = taxTypes(), picked = $app.querySelector('[name="taxtype"]:checked'); return types.length === 1 ? types[0] : picked && picked.value; };
+    // Store a finished file in the private bucket and record it on the application.
+    var store = function (blob, name, type, filled) {
       var ready = afterHire ? Promise.resolve() : save(true);
-      ready.then(function () {
-        var path = S.info.camp_id + '/' + S.app.id + '/' + Date.now() + '-' + file.name.replace(/[^A-Za-z0-9._-]+/g, '_').slice(-80);
-        return sb.storage.from('tax-forms').upload(path, file, { upsert: false, contentType: file.type || 'application/octet-stream' }).then(function (r) {
+      return ready.then(function () {
+        var path = S.info.camp_id + '/' + S.app.id + '/' + Date.now() + '-' + name.replace(/[^A-Za-z0-9._-]+/g, '_').slice(-80);
+        return sb.storage.from('tax-forms').upload(path, blob, { upsert: false, contentType: blob.type || 'application/octet-stream' }).then(function (r) {
           if (r.error) throw r.error;
-          var t = { type: type, path: path, name: file.name, uploaded_at: new Date().toISOString() };
-          if (afterHire) return sb.rpc('attach_tax_form', { p_app: S.app.id, p_type: type, p_path: path, p_name: file.name }).then(function (x) { if (x.error) throw x.error; S.app.data = Object.assign({}, S.app.data, { tax_form: t }); });
+          var t = { type: type, path: path, name: name, filled: !!filled, uploaded_at: new Date().toISOString() };
+          if (afterHire) return sb.rpc('attach_tax_form', { p_app: S.app.id, p_type: type, p_path: path, p_name: name }).then(function (x) { if (x.error) throw x.error; S.app.data = Object.assign({}, S.app.data, { tax_form: t }); });
           S.app.data = Object.assign({}, S.app.data || {}, { tax_form: t });
           return save(true);
         });
-      }).then(function () {
-        var box = document.getElementById('taxsec'); if (box) { box.outerHTML = taxSection(S.app.data); bindTax(afterHire); }
-      }).catch(function (e) { inp.disabled = false; alert('The upload didn\'t work: ' + (e.message || e)); });
+      }).then(redraw);
+    };
+    var pv = document.getElementById('taxpreview'), sg = document.getElementById('taxsign');
+    var go = function (preview) {
+      var type = typeNow(), r = taxAnswers(type);
+      var msg = document.getElementById('taxmsg'); if (msg) msg.remove();
+      if (r.problem) { var p = document.createElement('div'); p.id = 'taxmsg'; p.className = 'error'; p.textContent = r.problem; document.getElementById('taxq').appendChild(p); return; }
+      var w = preview ? window.open('', '_blank') : null;
+      (preview ? pv : sg).disabled = true;
+      makeTaxPdf(type, r.answers).then(function (bytes) {
+        var blob = new Blob([bytes], { type: 'application/pdf' });
+        if (preview) { var url = URL.createObjectURL(blob); if (w) w.location = url; else window.open(url, '_blank'); setTimeout(function () { URL.revokeObjectURL(url); }, 60000); pv.disabled = false; return; }
+        var who = type === 'W-4' ? [r.answers.first, r.answers.last].join(' ') : r.answers.name;
+        return store(blob, 'Form ' + type + ' ' + who + '.pdf', type, true);
+      }).catch(function (e) { if (w) w.close(); (preview ? pv : sg).disabled = false; var p = document.createElement('div'); p.id = 'taxmsg'; p.className = 'error'; p.textContent = (e.message || String(e)) + ' You can also upload a filled-in form below.'; document.getElementById('taxq').appendChild(p); });
+    };
+    if (pv) pv.onclick = function () { go(true); };
+    if (sg) sg.onclick = function () { go(false); };
+    var inp = document.getElementById('taxfile'); if (!inp) return;
+    inp.onchange = function () {
+      var file = inp.files[0]; if (!file) return;
+      var type = typeNow();
+      if (!type) { alert('Choose W-4 or W-9 first.'); inp.value = ''; return; }
+      if (file.size > 10 * 1024 * 1024) { alert('That file is over 10 MB. Try a PDF, or a smaller photo.'); inp.value = ''; return; }
+      inp.disabled = true;
+      store(file, file.name, type, false).catch(function (e) { inp.disabled = false; alert('The upload didn\'t work: ' + (e.message || e)); });
     };
   }
-
   // ---------- Staff application ----------
   function staffData() {
     var d = (S.app && S.app.data) || {};
@@ -421,7 +498,7 @@
       '<fieldset class="sec"><legend>Agreement</legend>' + (i.agreement ? '<div class="consent-text agree">' + esc(i.agreement) + '</div>' : '') +
       '<label class="check" style="margin-top:12px"><input type="checkbox" id="agree"><span>' + (i.agreement ? 'I have read and agree to the above.' : 'The information in this application is correct.') + '</span></label>' +
       '<label class="field">Type your full name to sign<input type="text" id="sig" maxlength="200" autocomplete="name" value="' + esc((S.app && S.app.signature) || '') + '"></label></fieldset>' +
-      '<p><button class="primary" style="width:100%">Send application</button></p></form>');
+      '<p><button class="primary" id="sendapp" style="width:100%">Send application</button></p></form>');
     bindOut();
     var f = document.getElementById('appf');
     f.addEventListener('input', function () { save(); });
@@ -446,7 +523,7 @@
       if (!asks(key) || F(key).mode !== 'required') return;
       if (!d['no_' + list] && !(d[list] || []).some(function (r) { return r && r.camp; })) { out.push(k === 'camper' ? 'camps you went to as a camper (or tick None)' : 'camps you worked at (or tick None)'); mark($app.querySelector('[data-k="' + list + '.0.camp"]')); }
     });
-    if (S.info.tax_form && S.info.tax_form !== 'none' && S.info.tax_when !== 'hired' && !(S.app && S.app.data && S.app.data.tax_form && S.app.data.tax_form.path)) out.push('your tax form (' + taxTypes().join(' or ') + ')');
+    if (S.info.tax_form && S.info.tax_form !== 'none' && S.info.tax_when !== 'hired' && !(S.app && S.app.data && S.app.data.tax_form && S.app.data.tax_form.path)) out.push('your tax form (' + taxTypes().join(' or ') + '): sign it or upload it');
     if (d.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(d.email)) { out.push('a valid email'); mark($app.querySelector('[data-k="email"]')); }
     if (!document.getElementById('agree').checked) out.push('the agreement checkbox');
     if (!document.getElementById('sig').value.trim()) { out.push('your signature'); mark(document.getElementById('sig')); }
