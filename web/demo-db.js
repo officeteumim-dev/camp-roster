@@ -146,7 +146,7 @@
       .forEach(function (a, i) { db.audit_log.push({ id: i + 1, camp_id: CAMP, actor: a[0], action: a[1], entity: a[2], entity_id: null, detail: a[3], at: created(i + 1) }); });
     // Divisions in the first session (a camp names its own), with its campers spread across them by grade.
     var s0 = db.sessions[0];
-    db.divisions = [['div-1', 'Juniors', 1], ['div-2', 'Seniors', 2]].map(function (d) { return { id: d[0], camp_id: CAMP, session_id: s0.id, name: d[1], sort: d[2] }; });
+    db.divisions = [['div-1', 'Juniors', 1, null, '5th'], ['div-2', 'Seniors', 2, '6th', null]].map(function (d) { return { id: d[0], camp_id: CAMP, session_id: s0.id, name: d[1], sort: d[2], grade_min: d[3], grade_max: d[4], age_min: null, age_max: null }; });
     db.enrollments.forEach(function (e) {
       if (e.session_id !== s0.id) return;
       var c = db.campers.find(function (x) { return x.id === e.camper_id; }), g = parseInt(String(c && c.grade || '').replace(/\D/g, ''), 10);

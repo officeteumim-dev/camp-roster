@@ -734,6 +734,16 @@ reset role;
 set local role anon;
 do $$ begin assert registration_info('camp-one') #>> '{sessions,0,divisions,1,name}' = 'Juniors', 'divisions listed for the public page, in order'; end $$;
 reset role;
+do $$ begin perform pg_temp.as_user('dir@x.org'); end $$;
+update divisions set grade_min = '3rd', grade_max = '5th', age_min = 8, age_max = 11 where id = '00000000-0000-0000-0000-0000000000d2';
+do $$ begin
+  begin update divisions set age_min = 12, age_max = 9 where id = '00000000-0000-0000-0000-0000000000d2'; raise exception 'backwards ages';
+  exception when check_violation then null; end;
+end $$;
+reset role;
+set local role anon;
+do $$ begin assert registration_info('camp-one') #> '{sessions,0,divisions,1}' @> '{"grade_min":"3rd","grade_max":"5th","age_min":8,"age_max":11}', 'limits shown to the public page'; end $$;
+reset role;
 do $$ begin perform pg_temp.as_parent('div@x.org', '00000000-0000-0000-0000-00000000aaa7'); end $$;
 do $$ begin
   insert into applications (camp_id, data, signature) values ('00000000-0000-0000-0000-0000000000c1',

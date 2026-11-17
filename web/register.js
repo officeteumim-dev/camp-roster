@@ -206,9 +206,26 @@
         return '<label class="check"><input type="checkbox" value="' + esc(x.id) + '"' + ((k.sessions || []).indexOf(x.id) >= 0 ? ' checked' : '') + '><span>' + esc(x.name) + (range(x) ? ' <span class="muted small">' + esc(range(x)) + '</span>' : '') + '</span></label>' +
           // A session with divisions: choose one (fixed by a division's own link).
           (divs.length && !S.info.division ? '<label class="field divpick"' + ((k.sessions || []).indexOf(x.id) >= 0 ? '' : ' hidden') + ' data-divfor="' + esc(x.id) + '">Division in ' + esc(x.name) + '<select data-division="' + n + ':' + esc(x.id) + '"><option value="">Choose…</option>' +
-            divs.map(function (d) { return '<option value="' + esc(d.id) + '"' + (picked === d.id ? ' selected' : '') + '>' + esc(d.name) + '</option>'; }).join('') + '</select></label>' : '') +
+            divOptions(x, k, picked) + '</select></label>' : '') +
           (S.info.division ? '<input type="hidden" data-division="' + n + ':' + esc(x.id) + '" value="' + esc(S.info.division.id) + '">' : '');
       }).join('') + '</div>' : '') + customs('camper', 'campers.' + n + '.custom.', k.custom) + '</div>';
+  }
+  // A session's divisions for this camper: only those they fit (all of them until grade and birth date are filled in).
+  var gradeList = function () { var g = F('camper.grade'); return g ? g.options : []; };
+  function divOptions(x, k, picked) {
+    return (x.divisions || []).filter(function (d) { return !window.RegForm.divisionFits(d, k, gradeList(), x.starts_on) || d.id === picked; }).map(function (d) {
+      var lim = window.RegForm.limitsText(d);
+      return '<option value="' + esc(d.id) + '"' + (picked === d.id ? ' selected' : '') + '>' + esc(d.name) + (lim ? ' (' + esc(lim) + ')' : '') + '</option>';
+    }).join('');
+  }
+  // When a camper's grade or birth date changes, offer only the divisions they fit.
+  function refreshDivisions(n) {
+    var d = collect(), k = d.campers[n] || {};
+    [].forEach.call($app.querySelectorAll('select[data-division^="' + n + ':"]'), function (sel) {
+      var sid = sel.dataset.division.split(':')[1], x = S.info.sessions.find(function (q) { return q.id === sid; }), keep = sel.value;
+      sel.innerHTML = '<option value="">Choose…</option>' + divOptions(x, k, keep);
+      sel.value = keep;
+    });
   }
   function form(msg) {
     var d = data(), i = S.info, pl = plans();
@@ -221,7 +238,8 @@
           input('emergency.relation', 'emergency.' + n + '.relation', e.relation, { max: 60 }) + '</div>';
       }).join('') + customs('emergency', 'custom.', d.custom) + '</fieldset>' : '';
     var other = (asks('notes') ? '<label class="field">' + esc(F('notes').label) + (F('notes').mode === 'optional' ? ' <span class="small muted">(optional)</span>' : '') + '<textarea data-k="notes" maxlength="2000" rows="3"' + (F('notes').mode === 'required' ? ' data-req' : '') + '>' + esc(d.notes || '') + '</textarea></label>' : '') + customs('other', 'custom.', d.custom);
-    show('<h1>Apply to ' + esc(i.name) + (i.sessionName ? ': ' + esc(i.sessionName) : '') + '</h1>' + (i.intro ? '<p style="white-space:pre-line">' + esc(i.intro) + '</p>' : '') +
+    var lim = i.division ? window.RegForm.limitsText(i.division) : '';
+    show('<h1>Apply to ' + esc(i.name) + (i.sessionName ? ': ' + esc(i.sessionName) : '') + '</h1>' + (lim ? '<p class="muted">For ' + esc(lim) + '.</p>' : '') + (i.intro ? '<p style="white-space:pre-line">' + esc(i.intro) + '</p>' : '') +
       '<p class="small muted">Signed in as ' + esc(S.user.email) + ' · <a href="#" id="out">Sign out</a> · <span class="saved" id="saved">Your answers are saved as you go.</span></p>' +
       (msg ? '<div class="error">' + esc(msg) + '</div>' : '') +
       '<form id="appf" novalidate>' +
@@ -243,6 +261,8 @@
     var f = document.getElementById('appf');
     f.addEventListener('input', function () { save(); });
     f.addEventListener('change', function (e) {
+      var kk = e.target.dataset && e.target.dataset.k && e.target.dataset.k.match(/^campers\.(\d+)\.(grade|dob)$/);
+      if (kk) refreshDivisions(+kk[1]);
       var box = e.target.closest && e.target.closest('[data-sessions]');
       if (box && e.target.type === 'checkbox') { var pick = box.querySelector('[data-divfor="' + e.target.value + '"]'); if (pick) pick.hidden = !e.target.checked; }
       save();
@@ -329,7 +349,9 @@
     d.campers.forEach(function (k, n) {
       (k.sessions || []).forEach(function (sid) {
         var x = S.info.sessions.find(function (q) { return q.id === sid; });
-        if (x && (x.divisions || []).length && !(k.divisions || {})[sid]) { out.push('camper ' + (n + 1) + '\'s division in ' + x.name); var sel = $app.querySelector('[data-division="' + n + ':' + sid + '"]'); if (sel) mark(sel); }
+        if (x && (x.divisions || []).length && !(k.divisions || {})[sid]) { out.push('camper ' + (n + 1) + '\'s division in ' + x.name); var sel = $app.querySelector('[data-division="' + n + ':' + sid + '"]'); if (sel) mark(sel); return; }
+        var dv = x && (x.divisions || []).find(function (q) { return q.id === (k.divisions || {})[sid]; }), why = window.RegForm.divisionFits(dv, k, gradeList(), x && x.starts_on);
+        if (why) { out.push((k.first || 'camper ' + (n + 1)) + ' doesn\'t fit ' + dv.name + ', which is for ' + why + (S.info.division ? ' (check the grade and date of birth, or ask the camp office for the right link)' : '')); mark($app.querySelector('[data-k="campers.' + n + '.grade"]')); }
       });
     });
     if (plans().length && !d.payment_plan) out.push('a payment plan');

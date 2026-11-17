@@ -1255,6 +1255,17 @@
             return row(q.label, esc(show((d.custom || {})[q.id]) || ''));
           }).join('') +
           row('Payment plan', esc(d.payment_plan_name || '')) + '</table></div>';
+        // A camper who doesn't fit their division (by grade or age) gets a warning; the office decides.
+        var misfit = [];
+        (d.campers || []).forEach(function (k) {
+          (k.sessions || []).forEach(function (sid) {
+            var did = (k.divisions || {})[sid] || k.division, dv = (S.divisions || []).find(function (q) { return q.id === did && q.session_id === sid; }), ss = S.sessions.find(function (q) { return q.id === sid; });
+            var grades = (window.RegForm.field((((S.camp.settings || {}).registration || {}).camper || {}).form, 'camper.grade') || {}).options || window.RegForm.GRADES;
+            var why = window.RegForm.divisionFits(dv, k, grades, ss && ss.starts_on);
+            if (why) misfit.push(esc(k.first) + ' (' + esc(k.grade || 'no grade') + (k.dob ? ', age ' + window.RegForm.ageOn(k.dob, ss && ss.starts_on) : '') + ') is in ' + esc(dv.name) + ', which is for ' + esc(why) + '.');
+          });
+        });
+        if (misfit.length) html += '<div class="card" style="border-color:var(--warn, #b7791f)"><strong>Check the division</strong><br>' + misfit.join('<br>') + '</div>';
         if (edit && open) {
           html += '<div class="card"><h2 style="margin-top:0">Decide</h2>' +
             (matches.length ? '<p><strong>This may be a family already in your roster:</strong></p>' + matches.map(function (m) {
@@ -1630,7 +1641,14 @@
           return '<div class="sessrow"><div class="sessname">' + esc(s.name) + '</div><div class="sessdates"><label class="field">Starts<input type="date" data-sstart="' + s.id + '" value="' + esc(s.starts_on || '') + '"></label>' +
             '<label class="field">Ends<input type="date" data-send="' + s.id + '" value="' + esc(s.ends_on || '') + '"></label></div>' +
             '<div class="divs"><div class="small muted">Divisions' + (divs.length ? '' : ' <span class="small">(none: add one if this session has divisions)</span>') + '</div>' +
-            divs.map(function (d) { return '<div class="divrow"><input type="text" data-divname="' + d.id + '" value="' + esc(d.name) + '" maxlength="80" aria-label="Division name"><button type="button" data-divdel="' + d.id + '" aria-label="Remove ' + esc(d.name) + '">Remove</button></div>'; }).join('') +
+            divs.map(function (d) {
+              var grades = (window.RegForm.field((((S.camp.settings || {}).registration || {}).camper || {}).form, 'camper.grade') || {}).options || window.RegForm.GRADES;
+              var gsel = function (k, label) { return '<label class="small">' + label + '<select data-divlim="' + d.id + '" data-k="' + k + '"><option value="">Any</option>' + grades.map(function (g) { return '<option' + (d[k] === g ? ' selected' : '') + '>' + esc(g) + '</option>'; }).join('') + '</select></label>'; };
+              var anum = function (k, label) { return '<label class="small">' + label + '<input type="number" min="0" max="99" inputmode="numeric" data-divlim="' + d.id + '" data-k="' + k + '" value="' + (d[k] == null ? '' : d[k]) + '" placeholder="Any"></label>'; };
+              return '<div class="divbox"><div class="divrow"><input type="text" data-divname="' + d.id + '" value="' + esc(d.name) + '" maxlength="80" aria-label="Division name"><button type="button" data-divdel="' + d.id + '" aria-label="Remove ' + esc(d.name) + '">Remove</button></div>' +
+                '<details class="divlims"' + (window.RegForm.limitsText(d) ? ' open' : '') + '><summary class="small">Who it\'s for: ' + esc(window.RegForm.limitsText(d) || 'anyone') + '</summary><div class="divlimgrid">' +
+                gsel('grade_min', 'Grade from') + gsel('grade_max', 'to') + anum('age_min', 'Age from') + anum('age_max', 'to') + '</div><p class="small muted" style="margin:4px 0 0">Age on the session\'s first day. Leave blank for no limit.</p></details></div>';
+            }).join('') +
             '<form class="divrow" data-divadd="' + s.id + '"><input type="text" placeholder="New division name" maxlength="80" aria-label="New division in ' + esc(s.name) + '"><button>Add</button></form></div></div>';
         }).join('') +
         '<form id="sessf" class="row" style="margin-top:10px"><input type="text" id="sesn" placeholder="New session name" aria-label="Session name" style="flex:1"><button>Add</button></form>' +
@@ -1666,6 +1684,19 @@
         inp.onchange = function () {
           var n = inp.value.trim(), d = S.divisions.find(function (x) { return x.id === inp.dataset.divname; }); if (!n) { inp.value = d.name; return; }
           DB.from('divisions').update({ name: n }).eq('id', d.id).then(must).then(function () { d.name = n; S.roster = null; toast('Renamed. Its registration link changes to match the new name.'); }).catch(fail);
+        };
+      });
+      [].forEach.call($main.querySelectorAll('[data-divlim]'), function (el) {
+        el.onchange = function () {
+          var d = S.divisions.find(function (x) { return x.id === el.dataset.divlim; }), k = el.dataset.k, v = el.value.trim();
+          var patch = {}; patch[k] = v === '' ? null : (/^age/.test(k) ? Math.max(0, Math.min(99, parseInt(v, 10) || 0)) : v);
+          var next = Object.assign({}, d, patch);
+          if (next.age_min != null && next.age_max != null && next.age_min > next.age_max) { el.value = d[k] == null ? '' : d[k]; return toast('The lowest age has to be at or below the highest.'); }
+          DB.from('divisions').update(patch).eq('id', d.id).then(must).then(function () {
+            Object.assign(d, patch);
+            var sum = el.closest('details').querySelector('summary'); sum.textContent = 'Who it\'s for: ' + (window.RegForm.limitsText(d) || 'anyone');
+            toast('Saved');
+          }).catch(fail);
         };
       });
       [].forEach.call($main.querySelectorAll('[data-divdel]'), function (b) {

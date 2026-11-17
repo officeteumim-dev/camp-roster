@@ -77,6 +77,34 @@
   function newId() { return 'q' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
   function detailKey(q) { return 'f_reg_' + q.id; }
 
+  // Does a camper fit a division's limits? grades: the form's grade list (in order); on: the session's first day.
+  // Returns '' when they fit (or we can't tell yet), otherwise what the division is for.
+  function ageOn(dob, on) {
+    if (!dob) return null;
+    var b = new Date(dob + 'T12:00:00'), d = on ? new Date(on + 'T12:00:00') : new Date(), a = d.getFullYear() - b.getFullYear();
+    if (d.getMonth() < b.getMonth() || (d.getMonth() === b.getMonth() && d.getDate() < b.getDate())) a--;
+    return a;
+  }
+  function limitsText(dv) {
+    var g = dv.grade_min || dv.grade_max ? (dv.grade_min && dv.grade_max ? (dv.grade_min === dv.grade_max ? dv.grade_min + ' grade' : 'grades ' + dv.grade_min + '–' + dv.grade_max) : dv.grade_min ? dv.grade_min + ' grade and up' : 'up to ' + dv.grade_max + ' grade') : '';
+    var a = dv.age_min != null || dv.age_max != null ? (dv.age_min != null && dv.age_max != null ? 'ages ' + dv.age_min + '–' + dv.age_max : dv.age_min != null ? 'ages ' + dv.age_min + ' and up' : 'up to age ' + dv.age_max) : '';
+    return [g, a].filter(Boolean).join(', ');
+  }
+  function divisionFits(dv, kid, grades, on) {
+    if (!dv) return '';
+    var bad = false, gi = kid.grade ? grades.indexOf(kid.grade) : -1;
+    if (gi >= 0) {
+      if (dv.grade_min && grades.indexOf(dv.grade_min) >= 0 && gi < grades.indexOf(dv.grade_min)) bad = true;
+      if (dv.grade_max && grades.indexOf(dv.grade_max) >= 0 && gi > grades.indexOf(dv.grade_max)) bad = true;
+    }
+    var age = ageOn(kid.dob, on);
+    if (age != null) {
+      if (dv.age_min != null && age < dv.age_min) bad = true;
+      if (dv.age_max != null && age > dv.age_max) bad = true;
+    }
+    return bad ? limitsText(dv) : '';
+  }
+
   root.RegForm = { GRADES: GRADES, STAFF_GRADES: STAFF_GRADES, POSITIONS: POSITIONS, BUILTIN: BUILTIN, STAFF_BUILTIN: STAFF_BUILTIN, TYPES: TYPES, SECTIONS: SECTIONS, STAFF_SECTIONS: STAFF_SECTIONS,
-    builtin: builtin, sections: sections, field: field, custom: custom, newId: newId, detailKey: detailKey };
+    builtin: builtin, sections: sections, field: field, custom: custom, newId: newId, detailKey: detailKey, divisionFits: divisionFits, limitsText: limitsText, ageOn: ageOn };
 })(typeof window !== 'undefined' ? window : globalThis);

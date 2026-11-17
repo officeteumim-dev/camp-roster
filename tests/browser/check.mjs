@@ -273,12 +273,16 @@ await so.context().close();
   if (boxes.join() !== 's1:true') errors.push('session link should offer only its session, ticked: ' + boxes.join());
   // Tammuz with divisions: its own link asks which division; a division's link fixes it.
   await r.context().close();
-  P2.rpc.registration_info.sessions[0].divisions = [{ id: 'd1', name: 'Bochurim' }, { id: 'd2', name: 'Mesivta Juniors' }];
+  P2.rpc.registration_info.sessions[0].divisions = [{ id: 'd1', name: 'Bochurim', grade_min: '9th' }, { id: 'd2', name: 'Mesivta Juniors', grade_min: '6th', grade_max: '8th', age_max: 14 }];
   r = await newPage(390, P2);
   await r.goto('http://app.test/register.html?camp=teumim&session=teumim-tammuz'); await r.waitForTimeout(400);
   if (!(await r.locator('[data-division="0:s1"]').isVisible())) errors.push('division question not shown');
   await r.locator('#sendapp').click(); await r.waitForTimeout(200);
   if (!/division in Teumim Tammuz/.test(await r.locator('.formerr').innerText().catch(() => ''))) errors.push('division not required');
+  // Grade limits: a 7th grader is only offered the Juniors division.
+  await r.locator('[data-k="campers.0.grade"]').selectOption('7th'); await r.waitForTimeout(200);
+  const offered = await r.locator('[data-division="0:s1"] option').evaluateAll(x => x.map(o => o.value).filter(Boolean));
+  if (offered.join() !== 'd2') errors.push('divisions not limited by grade: ' + offered.join());
   await r.locator('[data-division="0:s1"]').selectOption('d2'); await r.waitForTimeout(1200);
   const dw = await r.evaluate(() => window.FAKE.writes.filter(x => x.table === 'applications' && x.value.data).pop());
   if (!dw || dw.value.data.campers[0].divisions.s1 !== 'd2') errors.push('division choice not saved: ' + JSON.stringify(dw && dw.value.data.campers));
@@ -286,6 +290,9 @@ await so.context().close();
   if (!/Teumim Tammuz: Mesivta Juniors/.test(await r.locator('h1').innerText())) errors.push('division link heading: ' + await r.locator('h1').innerText());
   if (await r.locator('select[data-division]').count()) errors.push('division link should not ask the division');
   if ((await r.locator('input[type=hidden][data-division="0:s1"]').getAttribute('value')) !== 'd2') errors.push('division link does not set the division');
+  if (!/For grades 6th–8th, up to age 14/.test(await r.locator('main').innerText())) errors.push('division link does not say who it is for');
+  await r.locator('[data-k="campers.0.grade"]').selectOption('10th'); await r.locator('#sendapp').click(); await r.waitForTimeout(200);
+  if (!/doesn't fit Mesivta Juniors, which is for grades 6th–8th/.test(await r.locator('.formerr').innerText().catch(() => ''))) errors.push('misfit camper not stopped: ' + await r.locator('.formerr').innerText().catch(() => ''));
   await r.goto('http://app.test/register.html?camp=teumim&session=teumim-tammuz&division=nope'); await r.waitForTimeout(400);
   if (!/isn't open/.test(await r.locator('main').innerText())) errors.push('unknown division link not closed');
   await r.goto('http://app.test/register.html?camp=teumim&session=nope'); await r.waitForTimeout(400);
@@ -407,6 +414,10 @@ await demo.screenshot({ path: path.join(out, 'demo-settings-closed.png'), fullPa
   const add = demo.locator('form[data-divadd]').nth(1);
   await add.locator('input').fill('Advanced'); await add.locator('button').click(); await demo.waitForTimeout(500);
   if (!(await demo.locator('[data-divname]').evaluateAll(x => x.map(i => i.value))).includes('Advanced')) errors.push('division not added');
+  const lim = demo.locator('.divbox', { has: demo.locator('[data-divname][value="Advanced"]') });
+  await lim.locator('summary').click(); await lim.locator('[data-k="grade_min"]').selectOption('9th'); await demo.waitForTimeout(300);
+  await lim.locator('[data-k="age_min"]').fill('14'); await lim.locator('[data-k="age_min"]').press('Tab'); await demo.waitForTimeout(300);
+  if (!/9th grade and up, ages 14 and up/.test(await lim.locator('summary').innerText())) errors.push('division limits not saved: ' + await lim.locator('summary').innerText());
   await demo.locator('.card', { hasText: 'Camp Flow registrations are for' }).screenshot({ path: path.join(out, 'demo-divisions.png') });
   await demo.goto('http://app.test/#roster'); await demo.waitForTimeout(600);
   const rt = await demo.locator('main').innerText();
