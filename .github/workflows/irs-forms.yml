@@ -29,8 +29,14 @@ jobs:
               out[f] = {k: {'type': v.get('/FT'), 'states': [str(s) for s in (v.get('/_States_') or [])]} for k, v in (r.get_fields() or {}).items()}
           json.dump(out, open('web/irs/fields.json', 'w'), indent=1, sort_keys=True)
           PY
+      - name: PDF library for filling them in the browser (pinned version, served from our own site)
+        run: |
+          mkdir -p web/vendor && cd /tmp && npm pack --silent pdf-lib@1.17.1 >/dev/null && tar -xzf pdf-lib-1.17.1.tgz
+          cp package/dist/pdf-lib.min.js "$GITHUB_WORKSPACE/web/vendor/pdf-lib-1.17.1.min.js"
+          cp package/LICENSE.md "$GITHUB_WORKSPACE/web/vendor/pdf-lib-LICENSE.md"
+          sha256sum "$GITHUB_WORKSPACE/web/vendor/pdf-lib-1.17.1.min.js"
       - name: Commit if changed
         run: |
           git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add web/irs
+          git add web/irs web/vendor
           git diff --cached --quiet || git commit -m "Update blank IRS W-4 and W-9" && git push
