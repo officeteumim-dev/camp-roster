@@ -3,7 +3,7 @@
   function result(table, st) {
     var F = window.FAKE, rows = (F.tables[table] || []).slice();
     st.eqs.forEach(function (e) { if (e[0].indexOf('.') < 0) rows = rows.filter(function (r) { return r[e[0]] === undefined || r[e[0]] === e[1]; }); });
-    if (st.write) { F.writes.push({ table: table, op: st.write, value: st.value }); return { data: st.one ? (st.value && st.value[0] || st.value) : st.value, error: null }; }
+    if (st.write) { F.writes.push({ table: table, op: st.write, value: st.value }); var v = st.write === 'insert' && st.value && !Array.isArray(st.value) && !st.value.id ? Object.assign({ id: '00000000-0000-0000-0000-00000000f00d' }, st.value) : st.value; return { data: st.one ? (v && v[0] || v) : v, error: null }; }
     if (st.one) return { data: rows[0] || null, error: rows[0] || st.maybe ? null : { message: 'not found' } };
     return { data: rows, error: null };
   }

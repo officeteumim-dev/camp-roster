@@ -72,7 +72,8 @@ async function importFamilies(db, camp, rows) {
   const { families, problems } = CF.parseFamilies(rows);
   // Camp Flow's application times are the camp's local time.
   for (const p of families) p.family.applied_at = localToIso(p.family.applied_at, camp.timezone || 'America/New_York');
-  const existing = await loadAll(() => db.from('families').select('id, external_id, active').eq('camp_id', camp.id));
+  // Only families that came from Camp Flow: families from online registration are never flagged as gone by this report.
+  const existing = await loadAll(() => db.from('families').select('id, external_id, active').eq('camp_id', camp.id).like('external_id', 'campflow:%'));
   const plan = CF.planFamilies(families, { families: existing });
   const now = new Date().toISOString();
 
@@ -103,7 +104,9 @@ async function importCampers(db, camp, rows) {
   const { campers: parsed, problems } = CF.parseCampers(rows);
   const fams = await loadAll(() => db.from('families').select('id, external_id').eq('camp_id', camp.id));
   const idByExt = new Map(fams.map(f => [f.external_id, f.id]));
-  const existing = await loadAll(() => db.from('campers').select('id, family_id, external_id, first_name, derived, active').eq('camp_id', camp.id));
+  const cfFamily = new Set(fams.filter(f => f.external_id.startsWith('campflow:')).map(f => f.id));
+  // Campers of online-registered families are left alone (they're not in Camp Flow's report).
+  const existing = (await loadAll(() => db.from('campers').select('id, family_id, external_id, first_name, derived, active').eq('camp_id', camp.id))).filter(c => cfFamily.has(c.family_id));
   const plan = CF.planCampers(parsed, idByExt, existing);
   problems.push(...plan.problems);
   const now = new Date().toISOString();

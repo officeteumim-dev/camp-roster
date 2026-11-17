@@ -5,6 +5,8 @@
 // POST {camp, action:'link', family_ids:[id]}      → a fresh family link to copy (director or office)
 // POST {action:'daily_report'} with x-cron-key     → the 8 a.m. registration report
 // POST {camp, action:'report_now'}                 → a report of everything since the last one, emailed now (who can see reports)
+// POST {action:'application_submitted', id}        → "we received your application" to the parent (once)
+// POST {action:'application_decided', id}          → accepted / waitlisted / declined email to the parent (office; once per decision)
 // POST {action:'camp_request', id}                 → tells the site owner a new camp request came in (once per request)
 // POST {action:'camp_request_answer', id}          → tells the requester it was approved or declined (site owner only, once)
 import { admin, env, json, fail, cors, staffFor, sameText, must } from '../_shared/server.js';
@@ -39,6 +41,7 @@ Deno.serve(async req => {
     }
 
     if (body.action === 'camp_request' || body.action === 'camp_request_answer') return json(await campRequestEmail(req, db, body));
+    if (body.action === 'application_submitted' || body.action === 'application_decided') return json(await applicationEmail(req, db, body));
 
     const { data: camp } = await db.from('camps').select('*').eq('id', body.camp || '').maybeSingle();
     if (!camp) return fail('Unknown camp', 404);
@@ -207,5 +210,48 @@ async function campRequestEmail(req, db, body) {
   if (r.status === 'approved') await mail([r.email], `${camp?.name || r.camp_name} is ready in Camp Roster`,
     `Hi ${r.name},\n\nYour camp, ${camp?.name || r.camp_name}, is set up in Camp Roster and you're its director.\n\nSign in with this email address (${r.email}) at ${site}\n\nFrom Settings you can add your staff, your sessions and the forms you need.`, email);
   else await mail([r.email], `Your Camp Roster request`, `Hi ${r.name},\n\nThanks for your interest in Camp Roster. We're not able to open ${r.camp_name} right now. Reply to this email if you have any questions.`, email);
+  return { sent: true };
+}
+
+// ---------- Online applications ----------
+async function applicationEmail(req, db, body) {
+  if (!/^[0-9a-f-]{36}$/.test(body.id || '')) throw new Error('Bad request');
+  const { data: a } = await db.from('applications').select('*').eq('id', body.id).maybeSingle();
+  if (!a) return { sent: false };
+  const { data: camp } = await db.from('camps').select('*').eq('id', a.camp_id).single();
+  const s = camp.settings || {}, d = a.data || {};
+  const kids = (d.campers || []).map(k => k.first).filter(Boolean);
+  const names = kids.length > 1 ? kids.slice(0, -1).join(', ') + ' and ' + kids[kids.length - 1] : kids[0] || 'your child';
+  const from = env('MAIL_FROM') || `${camp.name} <office@wgcamps.com>`;
+  const send = async (subject, text) => {
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST', headers: { Authorization: `Bearer ${env('RESEND_API_KEY')}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to: [a.email], reply_to: s.reply_to || undefined, subject, text,
+        html: `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.55;color:#1d1d1b;max-width:600px;white-space:pre-line">${escH(text)}</div>` })
+    });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).message || `email service said ${r.status}`);
+  };
+  const link = `${appUrl()}/register.html?camp=${encodeURIComponent(camp.slug)}`;
+  if (body.action === 'application_submitted') {
+    // Anyone may poke this; it emails only the applicant, only once, only for a sent application.
+    if (a.status !== 'submitted' || a.confirmation_sent_at) return { sent: false };
+    const { data: claimed } = await db.from('applications').update({ confirmation_sent_at: new Date().toISOString() }).eq('id', a.id).is('confirmation_sent_at', null).select('id');
+    if (!claimed || !claimed.length) return { sent: false };
+    await send(`We received your application to ${camp.name}`,
+      `Thank you! We received your application for ${names} to ${camp.name}.\n\nThe camp office will review it and email you. You can see what you sent at ${link}\n\nQuestions? Just reply to this email.`);
+    return { sent: true };
+  }
+  // A decision: only the office, once per decision.
+  const me = await staffFor(req, db, camp.id);
+  if (!me || !(me.roles.includes('director') || await me.can('applications', 'change'))) throw new Error('Not allowed');
+  if (!['accepted', 'waitlisted', 'declined'].includes(a.status) || a.emailed_status === a.status) return { sent: false };
+  const { data: claimed } = await db.from('applications').update({ emailed_status: a.status }).eq('id', a.id).or(`emailed_status.is.null,emailed_status.neq.${a.status}`).select('id');
+  if (!claimed || !claimed.length) return { sent: false };
+  const text = {
+    accepted: `Good news: ${names} ${kids.length > 1 ? 'have' : 'has'} been accepted to ${camp.name}!\n\nWe'll email you soon with the forms we need before camp.\n\nQuestions? Just reply to this email.`,
+    waitlisted: `Thank you for applying to ${camp.name}. ${names} ${kids.length > 1 ? 'are' : 'is'} on our waiting list, and we'll email you if a place opens up.\n\nQuestions? Just reply to this email.`,
+    declined: `Thank you for applying to ${camp.name}. We're sorry, but we're not able to offer ${names} a place this time.\n\nQuestions? Just reply to this email.`
+  }[a.status];
+  await send({ accepted: `Accepted to ${camp.name}`, waitlisted: `${camp.name}: waiting list`, declined: `Your application to ${camp.name}` }[a.status], text);
   return { sent: true };
 }

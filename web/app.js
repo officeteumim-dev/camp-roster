@@ -40,6 +40,7 @@
       if (name === 'notify' && body.action === 'link') return Promise.resolve({ link: location.origin + '/portal.html?demo=' + encodeURIComponent(body.family_ids[0]) });
       if (name === 'notify' && body.action === 'rejected') return Promise.resolve({ sent: 0 });
       if (name === 'notify' && body.action === 'report_now') return DB.rpc('report_now', {}).then(must);
+      if (name === 'notify' && body.action === 'application_decided') return Promise.resolve({ sent: 0 });
       if (name === 'notify') return Promise.reject(said('Emails aren\'t sent from ' + DEMO.NAME + '. In your own camp, this emails the families.'));
       return Promise.reject(said('Imports are turned off in ' + DEMO.NAME + '. In your own camp, Camp Flow reports are imported here.'));
     }
@@ -249,7 +250,9 @@
       S.perms = must(r[3]) || { director: false, items: {}, roles: [] };
       S.roleList = must(r[4]); S.items = must(r[5]);
       S.myBunks = S.perms.roles.filter(function (x) { return x.scope === 'bunk' && x.bunk_id; }).map(function (x) { return x.bunk_id; });
+      S.appsWaiting = 0;
       drawTop(); route();
+      countApplications();
     }).catch(fail);
   }
 
@@ -263,6 +266,7 @@
     money: '<path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/>',
     imports: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
     settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+    applications: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="m9 15 2 2 4-4"/>',
     reports: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 18v-2"/><path d="M12 18v-4"/><path d="M16 18v-6"/>',
     activity: '<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/>',
     requests: '<path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/>',
@@ -277,6 +281,7 @@
     ['mybunk', 'My bunk', 'Campers', function () { return can('bunks') && !wide() && S.myBunks.length; }],
     ['money', 'Money', 'Office', function () { return can('money'); }],
     ['imports', 'Imports', 'Office', function () { return can('imports'); }],
+    ['applications', 'Applications', 'Office', function () { return can('applications'); }],
     ['reports', 'Reports', 'Office', function () { return can('reports'); }],
     ['settings', 'Settings', 'Setup', function () { return isDirector(); }],
     ['activity', 'Activity', 'Setup', function () { return can('activity'); }],
@@ -323,7 +328,7 @@
     document.getElementById('campName').textContent = S.camp.name;
     var groups = [];
     pages.forEach(function (p) { var g = groups.find(function (x) { return x.name === p[2]; }); if (!g) groups.push(g = { name: p[2], pages: [] }); g.pages.push(p); });
-    var link = function (p) { return '<a href="#' + p[0] + '" data-p="' + p[0] + '">' + svg(ICON[p[0]]) + '<span>' + p[1] + (p[0] === 'requests' && S.site.pending_requests ? ' <span class="chip warn" aria-label="' + S.site.pending_requests + ' waiting">' + S.site.pending_requests + '</span>' : '') + '</span></a>'; };
+    var link = function (p) { return '<a href="#' + p[0] + '" data-p="' + p[0] + '">' + svg(ICON[p[0]]) + '<span>' + p[1] + (p[0] === 'requests' && S.site.pending_requests ? ' <span class="chip warn" aria-label="' + S.site.pending_requests + ' waiting">' + S.site.pending_requests + '</span>' : '') + (p[0] === 'applications' && S.appsWaiting ? ' <span class="chip warn" aria-label="' + S.appsWaiting + ' to review">' + S.appsWaiting + '</span>' : '') + '</span></a>'; };
     $drawer.innerHTML = '<div class="drawer-head"><span class="logo" role="img" aria-label="Camp Roster by W Group"></span><b>' + esc(S.camp.name) + '</b><button class="iconbtn" data-close aria-label="Close menu">' + svg(ICON.close) + '</button></div>' +
       '<div class="drawer-acct">' + (camps.length > 1 ? '<select id="campsel" aria-label="Camp">' + camps.map(function (c) { return '<option value="' + c.id + '"' + (c.id === S.camp.id ? ' selected' : '') + '>' + esc(c.name) + (c.id === DEMO.CAMP ? ' (practice)' : '') + '</option>'; }).join('') + '</select>' : '') +
       '<span>' + esc(S.user.email) + '</span><span class="acct-role">' + (S.demo ? esc(DB.role().label) : S.roles.map(roleLabel).join(', ')) + '</span></div>' +
@@ -364,12 +369,13 @@
     var allowed = allowedPages();
     var page = h[0] || (allowed[0] && allowed[0][0]);
     if (page === 'camper' && can('roster')) return camperPage(h[1]);
+    if (page === 'applications' && h[1] && can('applications')) { markPage('applications', 'Application'); return h[1] === 'setup' ? registrationSetup() : applicationPage(h[1]); }
     if (page === 'reports' && h[1] && can('reports')) { markPage('reports', 'Report'); return reportsPage(h[1]); }
     if (page === 'settings' && h[1] === 'access' && isDirector()) { markPage('settings', 'Who can see what'); return accessPage(); }
     if (!allowed.some(function (p) { return p[0] === page; })) page = allowed[0] ? allowed[0][0] : null;
     markPage(page);
     if (!page) { $main.innerHTML = '<div class="card">Nothing to show for your role yet.</div>'; return; }
-    ({ roster: rosterPage, forms: formsPage, bunks: bunksPage, mybunk: myBunkPage, money: moneyPage, imports: importsPage, reports: reportsPage, requests: requestsPage, settings: settingsPage, activity: activityPage })[page]();
+    ({ roster: rosterPage, forms: formsPage, bunks: bunksPage, mybunk: myBunkPage, money: moneyPage, imports: importsPage, reports: reportsPage, applications: applicationsPage, requests: requestsPage, settings: settingsPage, activity: activityPage })[page]();
   }
   // Highlights the current page in the menu and bottom bar, and shows its name in the top bar.
   function markPage(page, title) {
@@ -1042,6 +1048,109 @@
       if (e.key === 'ArrowUp' && li.previousElementSibling) { ul.insertBefore(li, li.previousElementSibling); g.focus(); e.preventDefault(); }
       if (e.key === 'ArrowDown' && li.nextElementSibling) { ul.insertBefore(li.nextElementSibling, li); g.focus(); e.preventDefault(); }
     });
+  }
+
+
+  // ---------- Online applications ----------
+  var APP_STATUS = { submitted: ['To review', 'warn'], waitlisted: ['Waiting list', 'none'], accepted: ['Accepted', 'good'], declined: ['Declined', 'bad'], draft: ['Not sent yet', 'none'], withdrawn: ['Withdrawn', 'none'] };
+  function countApplications() {
+    if (!can('applications')) return;
+    DB.from('applications').select('id').eq('camp_id', S.camp.id).eq('kind', 'camper').eq('status', 'submitted').limit(2000).then(function (r) {
+      var n = (r.data || []).length; if (n !== S.appsWaiting) { S.appsWaiting = n; drawTop(); }
+    });
+  }
+  function regLink() { return location.origin + '/register.html?camp=' + encodeURIComponent(S.camp.slug); }
+  function kidLine(k, d) {
+    var sname = function (id) { var x = S.sessions.find(function (q) { return q.id === id; }); return x ? x.name : ''; };
+    return esc(k.first + ' ' + (k.last || d.last_name || '')) + (k.grade ? ' <span class="muted">' + esc(k.grade) + '</span>' : '') + ((k.sessions || []).length ? ' <span class="small muted">· ' + esc(k.sessions.map(sname).filter(Boolean).join(' & ')) + '</span>' : '');
+  }
+  function applicationsPage() {
+    var tab = S.appTab || 'submitted';
+    $main.innerHTML = '<p class="muted">Loading…</p>';
+    DB.from('applications').select('*').eq('camp_id', S.camp.id).eq('kind', 'camper').order('submitted_at', { ascending: false, nullsFirst: false }).order('updated_at', { ascending: false }).limit(2000).then(function (r) {
+      var all = must(r) || [], reg = ((S.camp.settings || {}).registration || {}).camper || {};
+      var counts = {}; all.forEach(function (a) { counts[a.status] = (counts[a.status] || 0) + 1; });
+      S.appsWaiting = counts.submitted || 0; drawTop();
+      var list = all.filter(function (a) { return a.status === tab; });
+      var tabs = ['submitted', 'waitlisted', 'accepted', 'declined', 'draft'].map(function (t) { return '<button class="' + (t === tab ? 'primary' : '') + '" data-tab="' + t + '">' + APP_STATUS[t][0] + ' (' + (counts[t] || 0) + ')</button>'; }).join('');
+      var openTxt = reg.enabled ? 'Online registration is <strong>on</strong>' + (reg.opens_on ? ' from ' + esc(reg.opens_on) : '') + (reg.closes_on ? ' until ' + esc(reg.closes_on) : '') + '.' : 'Online registration is <strong>off</strong>: parents can\'t apply yet. Camp Flow keeps working as it does now.';
+      $main.innerHTML = '<h1>Applications</h1><div class="card"><p style="margin-top:0">' + openTxt + '</p>' +
+        (reg.enabled && S.demo ? '<p class="small muted">In ' + DEMO.NAME + ' these are sample applications; in your own camp parents apply on your registration page.</p>' : '') + (reg.enabled && !S.demo ? '<p class="small">Parents apply at <a href="' + esc(regLink()) + '" target="_blank" rel="noopener">' + esc(regLink()) + '</a> <button id="copyreg">Copy link</button></p>' : '') +
+        (can('applications', 'change') ? '<a class="btn" href="#applications/setup">Set up online registration</a>' : '') + '</div>' +
+        '<div class="row noprint" style="flex-wrap:wrap;margin:14px 0">' + tabs + '</div>' +
+        (list.length ? '<div class="scroll"><table class="grid"><thead><tr><th>Family</th><th>Campers</th><th>Parent email</th><th>' + (tab === 'draft' ? 'Last saved' : 'Sent') + '</th></tr></thead><tbody>' + list.map(function (a) {
+          var d = a.data || {};
+          return '<tr><td><a href="#applications/' + a.id + '"><strong>' + esc(d.last_name || '(no name yet)') + '</strong></a>' + (d.father && d.father.first || d.mother && d.mother.first ? '<div class="small muted">' + esc([d.father && d.father.first, d.mother && d.mother.first].filter(Boolean).join(' & ')) + '</div>' : '') + '</td>' +
+            '<td>' + (d.campers || []).map(function (k) { return '<div>' + kidLine(k, d) + '</div>'; }).join('') + '</td><td class="small">' + esc(a.email) + '</td><td class="small">' + esc(when(a.submitted_at || a.updated_at)) + '</td></tr>';
+        }).join('') + '</tbody></table></div>' : '<p class="muted">' + { submitted: 'No applications waiting for review.', waitlisted: 'Nobody on the waiting list.', accepted: 'No accepted applications yet.', declined: 'No declined applications.', draft: 'No applications in progress.' }[tab] + '</p>') +
+        (tab === 'draft' && list.length ? '<p class="small muted">Parents who started but haven\'t sent their application yet. They can\'t be accepted until they send it.</p>' : '');
+      [].forEach.call($main.querySelectorAll('[data-tab]'), function (b) { b.onclick = function () { S.appTab = b.dataset.tab; applicationsPage(); }; });
+      var cp = document.getElementById('copyreg'); if (cp) cp.onclick = function () { navigator.clipboard.writeText(regLink()).then(function () { toast('Link copied'); }); };
+    }).catch(fail);
+  }
+  function applicationPage(id) {
+    $main.innerHTML = '<p class="muted">Loading…</p>';
+    DB.from('applications').select('*').eq('id', id).maybeSingle().then(function (r) {
+      var a = must(r);
+      if (!a) { $main.innerHTML = '<p><a href="#applications">← Applications</a></p><div class="card">Application not found.</div>'; return; }
+      var d = a.data || {}, edit = can('applications', 'change'), open = a.status === 'submitted' || a.status === 'waitlisted';
+      return (open && edit ? DB.rpc('application_matches', { p_id: id }).then(must) : Promise.resolve([])).then(function (matches) {
+        matches = matches || [];
+        var row = function (k, v) { return v ? '<tr><th style="width:170px">' + esc(k) + '</th><td>' + v + '</td></tr>' : ''; };
+        var par = function (w, label) { var p = d[w] || {}; return p.first ? row(label, esc([p.title, p.first, w === 'mother' && p.maiden ? '(' + p.maiden + ')' : ''].filter(Boolean).join(' ')) + '<div class="small">' + [p.phone ? '<a href="tel:' + esc(p.phone) + '">' + esc(p.phone) + '</a>' : '', p.email ? '<a href="mailto:' + esc(p.email) + '">' + esc(p.email) + '</a>' : '', esc(p.occupation || '')].filter(Boolean).join(' · ') + '</div>') : ''; };
+        var html = '<p class="noprint"><a href="#applications">← Applications</a></p><h1>' + esc(d.last_name || 'Application') + ' <span class="chip ' + APP_STATUS[a.status][1] + '">' + APP_STATUS[a.status][0] + '</span></h1>' +
+          '<p class="muted">From ' + esc(a.email) + (a.submitted_at ? ' · sent ' + esc(when(a.submitted_at)) + ' · signed by ' + esc(a.signature || '') : ' · not sent yet') + (a.decided_at ? ' · ' + esc(APP_STATUS[a.status][0].toLowerCase()) + ' ' + esc(when(a.decided_at)) + ' by ' + esc(a.decided_by || '') : '') + '</p>';
+        if (a.status === 'accepted' && a.family_id) html += '<div class="notice" style="background:var(--good-soft);padding:10px 12px;border-radius:8px">In the roster. <a href="#roster" id="seefam">See the campers</a></div>';
+        html += '<div class="card"><table class="kv">' + row('Campers', (d.campers || []).map(function (k) { return '<div>' + kidLine(k, d) + (k.dob ? ' <span class="small muted">· born ' + esc(k.dob) + '</span>' : '') + (k.gender ? ' <span class="small muted">· ' + esc(k.gender) + '</span>' : '') + (k.hebrew_name ? ' <span class="small muted">· ' + esc(k.hebrew_name) + '</span>' : '') + '</div>'; }).join('')) +
+          par('father', 'Father') + par('mother', 'Mother') +
+          row('Address', esc([d.address, d.city, [d.state, d.zip].filter(Boolean).join(' ')].filter(Boolean).join(', '))) +
+          row('Emergency contacts', (d.emergency || []).filter(function (e) { return e && e.name; }).map(function (e) { return '<div>' + esc([e.name, e.relation, e.phone].filter(Boolean).join(', ')) + '</div>'; }).join('')) +
+          row('Notes from the family', d.notes ? '<span style="white-space:pre-line">' + esc(d.notes) + '</span>' : '') + '</table></div>';
+        if (edit && open) {
+          html += '<div class="card"><h2 style="margin-top:0">Decide</h2>' +
+            (matches.length ? '<p><strong>This may be a family already in your roster:</strong></p>' + matches.map(function (m) {
+              return '<div class="row" style="justify-content:space-between;align-items:center;border-top:1px solid var(--line);padding:8px 0"><div><strong>' + esc(m.last_name) + '</strong> ' + esc(m.parents || '') + ' <span class="small muted">· ' + esc(m.source) + (m.campers ? ' · ' + esc(m.campers) : '') + ' · ' + esc(m.why) + '</span></div><button data-into="' + m.family_id + '">Accept into this family</button></div>';
+            }).join('') + '<p class="small muted">Adding to an existing family keeps that family\'s details as they are and adds these campers to it.</p>' : '') +
+            '<label class="check"><input type="checkbox" id="mailfam" checked><span>Email the family about the decision</span></label>' +
+            '<div class="row" style="flex-wrap:wrap;margin-top:10px"><button class="primary" id="acc">' + (matches.length ? 'Accept as a new family' : 'Accept') + '</button>' + (a.status !== 'waitlisted' ? '<button id="wait">Waiting list</button>' : '') + '<button id="dec">Decline</button></div></div>';
+        }
+        if (edit) html += '<div class="card noprint"><label class="field">Office note <span class="small muted">(only staff see this)</span><textarea id="onote" rows="2" maxlength="2000">' + esc(a.office_note || '') + '</textarea></label><button id="savenote">Save note</button></div>';
+        $main.innerHTML = html;
+        var mail = function () { return document.getElementById('mailfam') && document.getElementById('mailfam').checked ? fn('notify', { action: 'application_decided', id: id }).catch(function (e) { toast('Saved, but the email didn\'t go out: ' + e.message); }) : Promise.resolve(); };
+        var decide = function (p, msg) { p.then(must).then(mail).then(function () { toast(msg); countApplications(); applicationPage(id); }).catch(fail); };
+        var acc = document.getElementById('acc');
+        if (acc) acc.onclick = function () { if (confirm('Accept and add ' + (d.campers || []).length + ' camper(s) to the roster as a new family?')) decide(DB.rpc('accept_application', { p_id: id, p_family: null }), 'Accepted and added to the roster'); };
+        [].forEach.call($main.querySelectorAll('[data-into]'), function (b) { b.onclick = function () { if (confirm('Add these campers to the existing family?')) decide(DB.rpc('accept_application', { p_id: id, p_family: b.dataset.into }), 'Accepted and added to the family'); }; });
+        var w = document.getElementById('wait'); if (w) w.onclick = function () { decide(DB.from('applications').update({ status: 'waitlisted', decided_by: S.user.email, decided_at: new Date().toISOString() }).eq('id', id), 'Put on the waiting list'); };
+        var dc = document.getElementById('dec'); if (dc) dc.onclick = function () { if (confirm('Decline this application?')) decide(DB.from('applications').update({ status: 'declined', decided_by: S.user.email, decided_at: new Date().toISOString() }).eq('id', id), 'Declined'); };
+        var sn = document.getElementById('savenote'); if (sn) sn.onclick = function () { DB.from('applications').update({ office_note: document.getElementById('onote').value.trim() || null }).eq('id', id).then(must).then(function () { toast('Note saved'); }).catch(fail); };
+        var sf = document.getElementById('seefam'); if (sf) sf.onclick = function (e) { e.preventDefault(); S.roster = null; DB.from('campers').select('id').eq('family_id', a.family_id).limit(1).then(function (x) { var c = must(x); location.hash = c && c[0] ? '#camper/' + c[0].id : '#roster'; }); };
+      });
+    }).catch(fail);
+  }
+  function registrationSetup() {
+    var reg = ((S.camp.settings || {}).registration || {}).camper || {}, chosen = reg.sessions;
+    $main.innerHTML = '<p class="noprint"><a href="#applications">← Applications</a></p><h1>Online registration</h1>' +
+      '<p class="muted" style="max-width:760px">Parents sign in, fill in one application for the family, and sign it. Nothing reaches your roster until you accept it under Applications. While this is off, nothing changes: Camp Flow and its daily import work as they do now.</p>' +
+      '<form id="regf" class="card"><label class="check"><input type="checkbox" id="r_on"' + (reg.enabled ? ' checked' : '') + '><span><strong>Accept applications online</strong></span></label>' +
+      '<div class="row" style="gap:14px;flex-wrap:wrap"><label class="field">Opens on <span class="small muted">(blank = right away)</span><input type="date" id="r_open" value="' + esc(reg.opens_on || '') + '"></label>' +
+      '<label class="field">Closes after <span class="small muted">(blank = no end date)</span><input type="date" id="r_close" value="' + esc(reg.closes_on || '') + '"></label></div>' +
+      '<fieldset class="cols"><legend>Sessions parents can choose</legend>' + (S.sessions.length ? S.sessions.map(function (x) { return '<label class="check"><input type="checkbox" data-sess="' + x.id + '"' + (!chosen || chosen.indexOf(x.id) >= 0 ? ' checked' : '') + '><span>' + esc(x.name) + (x.starts_on ? ' <span class="small muted">' + esc(x.starts_on) + (x.ends_on ? ' to ' + esc(x.ends_on) : '') + '</span>' : '') + '</span></label>'; }).join('') : '<p class="small muted">No sessions yet. Add them in Settings, or they arrive with Camp Flow\'s camper report.</p>') + '</fieldset>' +
+      '<label class="field">Welcome text <span class="small muted">(shown at the top of the application)</span><textarea id="r_intro" rows="3" maxlength="4000">' + esc(reg.intro || '') + '</textarea></label>' +
+      '<label class="field">Agreement parents sign <span class="small muted">(camp policies, payment terms, release; leave blank for a simple "this information is correct")</span><textarea id="r_agree" rows="8" maxlength="20000">' + esc(reg.agreement || '') + '</textarea></label>' +
+      '<div class="row"><button class="primary">Save</button>' + (S.demo ? '' : '<a class="btn" href="' + esc(regLink()) + '" target="_blank" rel="noopener">Preview the parents\' page</a>') + '</div></form>';
+    document.getElementById('regf').onsubmit = function (e) {
+      e.preventDefault();
+      var boxes = [].slice.call($main.querySelectorAll('[data-sess]'));
+      var sess = boxes.filter(function (b) { return b.checked; }).map(function (b) { return b.dataset.sess; });
+      if (document.getElementById('r_on').checked && boxes.length && !sess.length) return toast('Choose at least one session.');
+      var v = { enabled: document.getElementById('r_on').checked, opens_on: document.getElementById('r_open').value, closes_on: document.getElementById('r_close').value,
+        sessions: boxes.length && sess.length < boxes.length ? sess : null, intro: document.getElementById('r_intro').value, agreement: document.getElementById('r_agree').value };
+      DB.rpc('set_registration', { p_camp: S.camp.id, p_kind: 'camper', p_settings: v }).then(must).then(function (saved) {
+        S.camp.settings = S.camp.settings || {}; S.camp.settings.registration = S.camp.settings.registration || {}; S.camp.settings.registration.camper = saved;
+        toast(saved.enabled ? 'Saved. Online registration is on.' : 'Saved. Online registration is off.'); location.hash = '#applications';
+      }).catch(fail);
+    };
   }
 
   // ---------- Daily registration report ----------

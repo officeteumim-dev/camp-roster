@@ -100,3 +100,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 fieldset.cols { border: 0; padding: 0; margin: 10px 0 0; }
 fieldset.cols legend { font-weight: 600; padding: 0; margin-bottom: 4px; }
 .scroll { overflow-x: auto; }
+table.kv { border-collapse: collapse; width: 100%; }
+table.kv th { text-align: left; vertical-align: top; padding: 8px 12px 8px 0; color: var(--muted); font-weight: 600; font-size: 14px; border-bottom: 1px solid var(--line); }
+table.kv td { padding: 8px 0; vertical-align: top; border-bottom: 1px solid var(--line); }
+table.kv tr:last-child th, table.kv tr:last-child td { border-bottom: 0; }

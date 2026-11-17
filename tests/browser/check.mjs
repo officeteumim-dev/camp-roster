@@ -204,6 +204,45 @@ await so.getByRole('link', { name: 'Forgot password?' }).click(); await so.waitF
 if (await so.locator('#pwd').count()) errors.push('forgot form asks for a password');
 await so.context().close();
 
+// Online registration, as a parent on a phone: closed, then open; required fields; saving and sending.
+{
+  const PARENT = JSON.parse(JSON.stringify(FAKE)); PARENT.session.user = { id: 'u-parent', email: 'parent@example.com' };
+  PARENT.rpc.registration_info = { camp_id: 'c1', name: 'Camp Teumim', kind: 'camper', open: false, enabled: false, sessions: [], contact: 'office@example.com' };
+  PARENT.tables.applications = [];
+  let reg = await newPage(390, PARENT);
+  await reg.goto('http://app.test/register.html?camp=teumim'); await reg.waitForTimeout(400);
+  if (!/isn't open yet/.test(await reg.locator('main').innerText())) errors.push('closed registration not explained');
+  await reg.context().close();
+  PARENT.rpc.registration_info = { ...PARENT.rpc.registration_info, open: true, enabled: true, intro: 'Welcome to camp!', agreement: 'Camp rules: be kind.',
+    sessions: [{ id: 's1', name: 'First Half', starts_on: '2027-07-01', ends_on: '2027-07-21' }, { id: 's2', name: 'Second Half', starts_on: '2027-07-22', ends_on: '2027-08-12' }] };
+  reg = await newPage(390, PARENT);
+  await reg.goto('http://app.test/register.html?camp=teumim'); await reg.waitForTimeout(400);
+  if ((await reg.locator('[data-k="father.email"]').inputValue()) !== 'parent@example.com') errors.push('parent email not filled in');
+  await reg.locator('#appf button.primary').click(); await reg.waitForTimeout(200);
+  if (!/Please fill in the family last name/.test(await reg.locator('.formerr').innerText().catch(() => ''))) errors.push('missing fields not listed');
+  const fill = async (k, v) => reg.locator(`[data-k="${k}"]`).fill(v);
+  await fill('last_name', 'Goldberg'); await fill('address', '14 Ocean Pkwy'); await fill('city', 'Brooklyn'); await fill('state', 'NY'); await fill('zip', '11218');
+  await fill('father.first', 'Yaakov'); await fill('father.phone', '718-555-0140');
+  await fill('emergency.0.name', 'Miriam Stern'); await fill('emergency.0.phone', '718-555-0199');
+  await fill('campers.0.first', 'Shimon'); await fill('campers.0.dob', '2015-05-12');
+  await reg.locator('[data-k="campers.0.grade"]').selectOption('5th'); await reg.locator('[data-k="campers.0.gender"]').selectOption('Male');
+  await reg.locator('[data-sessions="0"] input[value="s1"]').check();
+  await reg.locator('#addkid').click(); await reg.waitForTimeout(100);
+  await fill('campers.1.first', 'Tzvi'); await fill('campers.1.dob', '2017-09-02');
+  await reg.locator('[data-k="campers.1.grade"]').selectOption('3rd'); await reg.locator('[data-k="campers.1.gender"]').selectOption('Male');
+  await reg.locator('[data-sessions="1"] input[value="s2"]').check();
+  await reg.locator('#agree').check(); await reg.locator('#sig').fill('Yaakov Goldberg');
+  await reg.screenshot({ path: path.join(out, 'register-form.png'), fullPage: true });
+  await reg.locator('#appf button.primary').click(); await reg.waitForTimeout(600);
+  const w = await reg.evaluate(() => window.FAKE.writes.filter(x => x.table === 'applications'));
+  const last = w.filter(x => x.value && x.value.data).pop();
+  if (!last || last.value.data.campers.length !== 2 || last.value.data.campers[1].sessions[0] !== 's2' || last.value.data.father.first !== 'Yaakov' || last.value.signature !== 'Yaakov Goldberg') errors.push('application not saved right: ' + JSON.stringify(last && last.value));
+  if (!w.some(x => x.op === 'update' && x.value.status === 'submitted')) errors.push('application not sent');
+  if (!/We received your application/.test(await reg.locator('main').innerText())) errors.push('no confirmation after sending');
+  await reg.screenshot({ path: path.join(out, 'register-sent.png'), fullPage: true });
+  await reg.context().close();
+}
+
 // The public: signed in but on no camp. Until the owner opens Camp Test Site to everyone, they can only ask to open a camp.
 const STRANGER = JSON.parse(JSON.stringify(FAKE)); STRANGER.rpc.my_access = []; STRANGER.session.user.email = 'stranger@example.com';
 STRANGER.rpc.site_info = { admin: false, public_test_camp: false, my_request: null };
@@ -273,7 +312,7 @@ await demo.goto('http://app.test/#settings'); await demo.waitForTimeout(400);
 staffText = await demo.locator('main').innerText();
 if (/trial@example.com/.test(staffText)) errors.push('Start over did not wipe changes');
 // "Viewing as" each role.
-const nav = async () => (await demo.locator('#drawer nav a').evaluateAll(as => as.map(a => a.textContent.trim()))).join(',');
+const nav = async () => (await demo.locator('#drawer nav a').evaluateAll(as => as.map(a => a.querySelector('span').firstChild.textContent.trim()))).join(',');
 const viewAs = async k => { await demo.selectOption('#demorole', k); await demo.waitForTimeout(700); };
 await viewAs('counselor@bunk-boys-1');
 if (await nav() !== 'Roster,My bunk') errors.push('counselor nav: ' + await nav());
@@ -295,7 +334,7 @@ if (await demo.locator('[data-approve]').count()) errors.push('office sees Appro
 await viewAs('infirmary');
 if (/Settings|Money/.test(await nav())) errors.push('infirmary nav: ' + await nav());
 await viewAs('director');
-if (await nav() !== 'Roster,Forms,Bunks,Money,Imports,Reports,Settings,Activity') errors.push('director nav: ' + await nav());
+if (await nav() !== 'Roster,Forms,Bunks,Money,Imports,Applications,Reports,Settings,Activity') errors.push('director nav: ' + await nav());
 
 // Who can see what (test camp): add a Kitchen role that sees names and alerts, then view as Kitchen.
 await demo.goto('http://app.test/#settings/access'); await demo.waitForTimeout(600);
@@ -360,7 +399,27 @@ if (!/#reports\/dr-now-/.test(demo.url())) errors.push('Run report now did not o
 await demo.goto('http://app.test/#reports'); await demo.waitForTimeout(500);
 if (await demo.locator('main table.grid a[href^="#reports/"]').count() !== beforeRuns + 1) errors.push('run-now report not in the list');
 await demo.screenshot({ path: path.join(out, 'demo-reports.png'), fullPage: true });
+// Applications in the practice camp: a sibling is matched to the family already there; a new family is accepted; one is waitlisted.
+await demo.goto('http://app.test/#applications'); await demo.waitForTimeout(500);
+if (!/To review \(2\)/.test(await demo.locator('main').innerText())) errors.push('applications to review not counted');
+await demo.screenshot({ path: path.join(out, 'demo-applications.png'), fullPage: true });
+await demo.goto('http://app.test/#applications/app-2'); await demo.waitForTimeout(500);
+if (!(await demo.locator('[data-into]').count())) errors.push('sibling application not matched to the existing family');
+await demo.screenshot({ path: path.join(out, 'demo-application-match.png'), fullPage: true });
+const famBefore = await demo.locator('[data-into]').first().getAttribute('data-into');
+await demo.locator('[data-into]').first().click(); await demo.waitForTimeout(500);
+if (!/Accepted/.test(await demo.locator('h1').innerText())) errors.push('sibling not accepted');
+await demo.goto('http://app.test/#applications/app-1'); await demo.waitForTimeout(500);
+await demo.locator('#acc').click(); await demo.waitForTimeout(500);
+await demo.locator('#seefam').click(); await demo.waitForTimeout(700);
+if (!/Shimon Goldberg/.test(await demo.locator('main').innerText())) errors.push('accepted camper not in the roster: ' + demo.url());
+await demo.goto('http://app.test/#roster'); await demo.waitForTimeout(600);
+if (!/Goldberg/.test(await demo.locator('main').innerText())) errors.push('new family missing from roster');
+await demo.goto('http://app.test/#applications/setup'); await demo.waitForTimeout(400);
+await demo.locator('#r_close').fill('2027-05-31'); await demo.locator('#regf button.primary').click(); await demo.waitForTimeout(400);
+if (!/until 2027-05-31/.test(await demo.locator('main').innerText())) errors.push('registration settings not saved');
 await viewAs('counselor@bunk-boys-1');
+if (/Applications/.test(await nav())) errors.push('counselor sees Applications');
 if (/Reports/.test(await nav())) errors.push('counselor sees Reports');
 await viewAs('office');
 if (!/Reports/.test(await nav())) errors.push('office does not see Reports');

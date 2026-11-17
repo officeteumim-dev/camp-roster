@@ -51,6 +51,12 @@ begin
   execute 'set local role authenticated';
 end $$;
 
+create function pg_temp.as_parent(p_email text, p_uid uuid) returns void language plpgsql as $$
+begin
+  perform set_config('request.jwt.claims', json_build_object('email', p_email, 'sub', p_uid)::text, true);
+  execute 'set local role authenticated';
+end $$;
+
 do $$ begin assert (select count(*) from requirements where camp_id = '00000000-0000-0000-0000-0000000000c1') = 6, 'standard requirements seeded'; end $$;
 
 -- ---------- Director sees everything in their own camp, nothing in another ----------
@@ -273,7 +279,7 @@ end $$; rollback;
 -- ---------- Who-sees-what table ----------
 do $$ begin
   assert (select count(*) from roles where camp_id = '00000000-0000-0000-0000-0000000000c1') = 6, 'six built-in roles';
-  assert (select count(*) from perm_items where camp_id = '00000000-0000-0000-0000-0000000000c1') = 11, 'eleven built-in items (with the daily report)';
+  assert (select count(*) from perm_items where camp_id = '00000000-0000-0000-0000-0000000000c1') = 12, 'twelve built-in items (with the daily report and applications)';
 end $$;
 
 -- Only the director edits the table; the director keeps full access.
@@ -460,6 +466,86 @@ do $$ begin
   assert (select slug from camps) = 'camp-sunshine', 'slug from the name';
   assert (select count(*) from requirements) >= 5 and (select count(*) from roles) = 6, 'new camp has the standard forms and roles';
   assert (site_info() ->> 'public_test_camp')::boolean, 'switch visible';
+end $$;
+rollback;
+
+
+-- ---------- Online applications ----------
+begin;
+-- Closed: nobody can start an application.
+do $$ begin perform pg_temp.as_parent('parent@x.org', '00000000-0000-0000-0000-00000000aaa1'); end $$;
+do $$ begin
+  assert not (registration_info('camp-one') ->> 'open')::boolean, 'registration starts closed';
+  begin insert into applications (camp_id) values ('00000000-0000-0000-0000-0000000000c1'); raise exception 'applied while closed';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+do $$ begin perform pg_temp.as_user('coun@x.org'); end $$;
+do $$ begin perform set_registration('00000000-0000-0000-0000-0000000000c1', 'camper', '{"enabled":true}'); raise exception 'counselor opened registration';
+exception when insufficient_privilege then null; end $$;
+reset role;
+do $$ begin perform pg_temp.as_user('office@x.org'); end $$;
+select set_registration('00000000-0000-0000-0000-0000000000c1', 'camper', '{"enabled":true,"sessions":["00000000-0000-0000-0000-0000000000e1"],"intro":" Welcome ","opens_on":""}');
+reset role;
+do $$ begin assert (select settings #>> '{registration,camper,intro}' from camps where id = '00000000-0000-0000-0000-0000000000c1') = 'Welcome', 'saved, trimmed'; end $$;
+set local role anon;
+do $$ declare i jsonb; begin
+  i := registration_info('camp-one');
+  assert (i ->> 'open')::boolean and jsonb_array_length(i -> 'sessions') = 1 and i -> 'sessions' -> 0 ->> 'name' = 'First half', 'public sees the offered sessions only';
+end $$;
+reset role;
+do $$ begin perform pg_temp.as_parent('parent@x.org', '00000000-0000-0000-0000-00000000aaa1'); end $$;
+do $$ declare aid uuid; begin
+  insert into applications (camp_id, data) values ('00000000-0000-0000-0000-0000000000c1',
+    '{"last_name":"Levi","father":{"first":"Moshe","email":"MOSHE@x.org","phone":"732-555-0101"},"mother":{"first":"Rivka"},"campers":[{"first":"Dovi","dob":"2016-03-04","grade":"4th","sessions":["00000000-0000-0000-0000-0000000000e1"]}]}')
+    returning id into aid;
+  begin insert into applications (camp_id) values ('00000000-0000-0000-0000-0000000000c1'); raise exception 'two open applications';
+  exception when unique_violation then null; end;
+  begin update applications set status = 'submitted' where id = aid; raise exception 'submitted unsigned';
+  exception when raise_exception then if sqlerrm not like 'Please sign%' then raise; end if; end;
+  update applications set signature = 'Moshe Levi', status = 'submitted' where id = aid;
+  assert (select submitted_at is not null from applications where id = aid), 'submitted';
+  update applications set data = '{}' where id = aid;   -- no longer a draft: nothing changes
+  assert (select data ->> 'last_name' from applications where id = aid) = 'Levi', 'submitted application is locked';
+  begin update applications set status = 'accepted' where id = aid; exception when others then null; end;
+  assert (select status from applications where id = aid) = 'submitted', 'parent cannot accept';
+  begin perform accept_application(aid); raise exception 'parent accepted'; exception when insufficient_privilege then null; end;
+  assert (select count(*) from families) = 0, 'parent sees no roster';
+end $$;
+reset role;
+do $$ begin perform pg_temp.as_parent('someone@x.org', '00000000-0000-0000-0000-00000000aaa2'); end $$;
+do $$ begin assert (select count(*) from applications) = 0, 'others cannot see it'; end $$;
+reset role;
+do $$ begin perform pg_temp.as_user('coun@x.org'); end $$;
+do $$ begin assert (select count(*) from applications) = 0, 'counselor cannot see applications'; end $$;
+reset role;
+do $$ begin perform pg_temp.as_user('office@x.org'); end $$;
+do $$ declare aid uuid; m record; fam uuid; begin
+  select id into aid from applications;
+  select * into m from application_matches(aid) limit 1;
+  assert m.family_id = '00000000-0000-0000-0000-0000000000f1' and m.why like '%same email%' and m.why like '%same phone%' and m.source = 'Camp Flow', 'matches the Camp Flow family';
+  -- Accept into the existing family: a new camper, enrolled, nothing about the family overwritten.
+  fam := accept_application(aid, '00000000-0000-0000-0000-0000000000f1');
+  assert fam = '00000000-0000-0000-0000-0000000000f1';
+  assert (select count(*) from campers where family_id = fam) = 3 and exists (select 1 from campers c join enrollments e on e.camper_id = c.id where c.first_name = 'Dovi' and c.last_name = 'Levi' and c.grade = '4th'), 'camper added and enrolled';
+  assert (select status from applications where id = aid) = 'accepted';
+  begin perform accept_application(aid); raise exception 'accepted twice'; exception when raise_exception then null; end;
+end $$;
+reset role;
+-- A new family from a second parent, accepted as new.
+do $$ begin perform pg_temp.as_parent('new@x.org', '00000000-0000-0000-0000-00000000aaa3'); end $$;
+do $$ begin
+  insert into applications (camp_id, data, signature) values ('00000000-0000-0000-0000-0000000000c1',
+    '{"last_name":"Katz","father":{"first":"Ari","email":"new@x.org"},"address":"1 Main St","city":"Lakewood","state":"NJ","zip":"08701","emergency":[{"name":"Sara Katz","relation":"Aunt","phone":"555"}],"campers":[{"first":"Eli"},{"first":"Avi","last":"Katz-Gold"}]}', 'Ari Katz');
+  update applications set status = 'submitted';
+end $$;
+reset role;
+do $$ begin perform pg_temp.as_user('dir@x.org'); end $$;
+do $$ declare fam uuid; begin
+  fam := accept_application((select id from applications where email = 'new@x.org'));
+  assert (select external_id from families where id = fam) like 'online:%', 'online family';
+  assert (select emergency_contacts[1] from families where id = fam) = 'Sara Katz, Aunt, 555';
+  assert (select string_agg(first_name || ' ' || last_name, ',' order by first_name) from campers where family_id = fam) = 'Avi Katz-Gold,Eli Katz';
 end $$;
 rollback;
 

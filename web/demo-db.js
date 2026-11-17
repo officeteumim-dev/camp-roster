@@ -145,6 +145,7 @@
     [['nurse@example.com', 'update', 'submissions', { status: 'approved' }], ['head.boys@example.com', 'insert', 'bunk_assignments', null], ['office@example.com', 'view', 'file', null], [email, 'insert', 'staff', { email: 'counselor@example.com', role: 'counselor' }]]
       .forEach(function (a, i) { db.audit_log.push({ id: i + 1, camp_id: CAMP, actor: a[0], action: a[1], entity: a[2], entity_id: null, detail: a[3], at: created(i + 1) }); });
     sampleReports(db);
+    sampleApplications(db);
     return db;
   }
 
@@ -195,6 +196,30 @@
       db.daily_reports.push({ id: 'dr-' + i, camp_id: CAMP, report_date: y + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day, period_start: from, period_end: to,
         data: reportData(db, from, to), sent_to: ['you (practice: no email is sent)'], error: null, created_at: to });
     });
+  }
+
+  // ---------- Online applications: a few to practice on ----------
+  function sampleApplications(db) {
+    var s1 = db.sessions[0], s2 = db.sessions[1] || db.sessions[0], now = Date.now();
+    var ago = function (h) { return new Date(now - h * 3600e3).toISOString(); };
+    var sib = db.families.find(function (f) { return f.father_email; }) || db.families[0];
+    var app = function (id, email, status, hours, d) {
+      return { id: id, camp_id: CAMP, kind: 'camper', user_id: 'demo', email: email, status: status, data: d, signature: status === 'draft' ? null : [d.father.first, d.last_name].join(' '),
+        signed_at: status === 'draft' ? null : ago(hours), submitted_at: status === 'draft' ? null : ago(hours), decided_at: null, decided_by: null, office_note: null, family_id: null, created_at: ago(hours + 1), updated_at: ago(hours) };
+    };
+    db.applications = [
+      app('app-1', 'goldberg.family@example.com', 'submitted', 5, { last_name: 'Goldberg', father: { first: 'Yaakov', phone: '(718) 555-0140', email: 'goldberg.family@example.com' }, mother: { first: 'Leah', phone: '(718) 555-0141', email: 'leah.g@example.com' },
+        address: '14 Ocean Pkwy', city: 'Brooklyn', state: 'NY', zip: '11218', emergency: [{ name: 'Miriam Stern', relation: 'Grandmother', phone: '(718) 555-0199' }],
+        campers: [{ first: 'Shimon', dob: '2015-05-12', gender: 'Male', grade: '5th', sessions: [s1.id] }, { first: 'Tzvi', dob: '2017-09-02', gender: 'Male', grade: '3rd', sessions: [s1.id, s2.id] }], notes: 'Shimon would love to be with his cousin.' }),
+      // A sibling of a family already in the roster (same email): the page offers to add to that family.
+      app('app-2', sib.father_email, 'submitted', 20, { last_name: sib.last_name, father: { first: sib.father_first, phone: sib.father_phone, email: sib.father_email }, mother: { first: sib.mother_first || '' },
+        address: sib.address, city: sib.city, state: sib.state, zip: sib.zip, emergency: [{ name: 'Neighbor', phone: '(555) 555-0100' }],
+        campers: [{ first: 'Baruch', dob: '2018-01-20', gender: 'Male', grade: '2nd', sessions: [s2.id] }] }),
+      app('app-3', 'weiss@example.com', 'waitlisted', 70, { last_name: 'Weiss', father: { first: 'Moshe', phone: '(845) 555-0177', email: 'weiss@example.com' }, mother: {}, address: '9 Maple Ave', city: 'Monsey', state: 'NY', zip: '10952',
+        emergency: [{ name: 'Rachel Weiss', relation: 'Aunt', phone: '(845) 555-0178' }], campers: [{ first: 'Ari', dob: '2014-11-30', gender: 'Male', grade: '6th', sessions: [s2.id] }] }),
+      app('app-4', 'klein@example.com', 'draft', 2, { last_name: 'Klein', father: { first: 'Dov', email: 'klein@example.com' }, mother: {}, emergency: [{}], campers: [{ first: 'Eli' }] })
+    ];
+    db.camps[0].settings = Object.assign({}, db.camps[0].settings, { registration: { camper: { enabled: true, intro: 'Welcome! Fill in one application for your family.', agreement: '' } } });
   }
 
   // ---------- Statuses (the same rules as the database) ----------
@@ -325,12 +350,13 @@
     ['bunks', 'Bunks', 'Bunk lists. Change: create bunks, move campers'], ['money', 'Money', 'Charges, payments and balances'],
     ['imports', 'Camp Flow imports', 'Import history. Change: import a report by hand'], ['setup', 'Sessions and required forms', 'Change: add sessions and dates, turn required forms on or off'],
     ['activity', 'Activity log', 'Who did what, and who opened which form'],
-    ['reports', 'Daily registration report', 'New registrations each morning, and who it is emailed to']];
+    ['reports', 'Daily registration report', 'New registrations each morning, and who it is emailed to'],
+    ['applications', 'Applications', 'Online applications. Change: accept, waitlist or decline them, and set up online registration']];
   // [role, item, see, change]: tests/demo.test.mjs checks these match the database migration.
   var PERM_DEFAULTS = [['office', 'roster', 1, 1], ['office', 'parent_contacts', 1, 1], ['office', 'alerts', 1, 0], ['office', 'health_forms', 1, 0], ['office', 'form_status', 1, 1],
     ['office', 'bunks', 1, 1], ['office', 'imports', 1, 1], ['office', 'setup', 1, 1], ['finance', 'roster', 1, 0], ['finance', 'parent_contacts', 1, 0], ['finance', 'money', 1, 0],
     ['infirmary', 'roster', 1, 0], ['infirmary', 'parent_contacts', 1, 0], ['infirmary', 'alerts', 1, 1], ['infirmary', 'health_forms', 1, 1], ['infirmary', 'form_status', 1, 0], ['infirmary', 'bunks', 1, 0],
-    ['head_counselor', 'roster', 1, 0], ['head_counselor', 'alerts', 1, 0], ['head_counselor', 'bunks', 1, 1], ['counselor', 'roster', 1, 0], ['counselor', 'alerts', 1, 0], ['counselor', 'bunks', 1, 0], ['office', 'reports', 1, 0]];
+    ['head_counselor', 'roster', 1, 0], ['head_counselor', 'alerts', 1, 0], ['head_counselor', 'bunks', 1, 1], ['counselor', 'roster', 1, 0], ['counselor', 'alerts', 1, 0], ['counselor', 'bunks', 1, 0], ['office', 'reports', 1, 0], ['office', 'applications', 1, 1]];
   function seedAccess(db) {
     db.roles = ROLE_DEFAULTS.map(function (r, i) { return { camp_id: CAMP, key: r[0], label: r[1], scope: r[2], builtin: true, sort: i + 1 }; });
     db.perm_items = ITEM_DEFAULTS.map(function (r, i) { return { camp_id: CAMP, key: r[0], label: r[1], help: r[2], kind: 'builtin', sort: i + 1 }; });
@@ -393,6 +419,7 @@
         case 'import_runs': return canAny('imports', 'see');
         case 'audit_log': return canAny('activity', 'see');
         case 'daily_reports': return canAny('reports', 'see');
+        case 'applications': return canAny('applications', 'see');
         default: return false;
       }
     }
@@ -408,6 +435,7 @@
         case 'submissions': return op === 'delete' ? me.role === 'director' : (row.camper_id ? canCamper(row.camper_id, 'health_forms', 'change') : canFamily(row.family_id, 'health_forms', 'change'));
         case 'camper_health': return canCamper(row.camper_id, 'alerts', 'change');
         case 'camper_fields': return canCamper(row.camper_id, row.item_key, 'change');
+        case 'applications': return op === 'update' && canAny('applications', 'change');
         default: return false;
       }
     }
@@ -525,6 +553,49 @@
       sfsp_connection: function () { if (me.role !== 'director') return null; var s = db.camp_secrets[0]; return { sfsp_camp_id: s.sfsp_camp_id, sfsp_form_url: s.sfsp_form_url, has_secret: true, last_message: null }; },
       set_sfsp_connection: function (a) { if (me.role !== 'director') notAllowed(); var s = db.camp_secrets[0]; s.sfsp_camp_id = a.p_sfsp_camp_id || s.sfsp_camp_id; s.sfsp_form_url = a.p_form_url || s.sfsp_form_url; save(); return null; },
       log_file_view: function () { return null; },
+      application_matches: function (a) {
+        if (!canAny('applications', 'see')) notAllowed();
+        var ap = db.applications.find(function (x) { return x.id === a.p_id; }); if (!ap) return [];
+        var d = ap.data, digits = function (p) { return String(p || '').replace(/\D/g, '').slice(-10); };
+        var emails = [d.father && d.father.email, d.mother && d.mother.email, ap.email].filter(Boolean).map(function (e) { return e.toLowerCase(); });
+        var phones = [d.father && d.father.phone, d.mother && d.mother.phone].map(digits).filter(function (p) { return p.length === 10; });
+        return db.families.filter(function (f) { return f.active; }).map(function (f) {
+          var why = [];
+          if ([f.father_email, f.mother_email].some(function (e) { return e && emails.indexOf(e.toLowerCase()) >= 0; })) why.push('same email');
+          if ([f.father_phone, f.mother_phone].some(function (p) { return phones.indexOf(digits(p)) >= 0 && digits(p).length === 10; })) why.push('same phone');
+          if ((f.last_name || '').toLowerCase() === (d.last_name || '').toLowerCase() && (f.father_first || '').toLowerCase() === ((d.father && d.father.first) || '-').toLowerCase()) why.push('same name');
+          return why.length ? { family_id: f.id, last_name: f.last_name, parents: [f.father_first, f.mother_first].filter(Boolean).join(' & '), source: /^campflow:/.test(f.external_id) ? 'Camp Flow' : 'Online',
+            campers: db.campers.filter(function (c) { return c.family_id === f.id && c.active; }).map(function (c) { return c.first_name; }).join(', '), why: why.join(', ') } : null;
+        }).filter(Boolean).slice(0, 10);
+      },
+      accept_application: function (a) {
+        if (!canAny('applications', 'change')) notAllowed();
+        var ap = db.applications.find(function (x) { return x.id === a.p_id; });
+        if (!ap || ['submitted', 'waitlisted'].indexOf(ap.status) < 0) throw new Error('This application has already been decided.');
+        var d = ap.data, now = new Date().toISOString(), fam = a.p_family;
+        if (!fam) {
+          fam = 'fam-online-' + ap.id;
+          db.families.push({ id: fam, camp_id: CAMP, external_id: 'online:' + ap.id, last_name: d.last_name || '', father_first: d.father.first || null, father_phone: d.father.phone || null, father_email: d.father.email || null,
+            mother_first: (d.mother || {}).first || null, mother_phone: (d.mother || {}).phone || null, mother_email: (d.mother || {}).email || null, address: d.address || null, city: d.city || null, state: d.state || null, zip: d.zip || null,
+            emergency_contacts: (d.emergency || []).filter(function (e) { return e && e.name; }).map(function (e) { return [e.name, e.relation, e.phone].filter(Boolean).join(', '); }), disclosures: {}, active: true, applied_at: ap.submitted_at, created_at: now, updated_at: now });
+        }
+        (d.campers || []).forEach(function (k, n) {
+          var id = 'cmp-online-' + ap.id + '-' + n;
+          db.campers.push({ id: id, camp_id: CAMP, family_id: fam, external_id: null, first_name: k.first, last_name: k.last || d.last_name || '', date_of_birth: k.dob || null, gender: k.gender || null, grade: k.grade || null, hebrew_name: k.hebrew_name || null, derived: false, active: true, created_at: now, updated_at: now });
+          (k.sessions || []).forEach(function (sid) { if (db.sessions.some(function (x) { return x.id === sid; })) db.enrollments.push({ camper_id: id, session_id: sid, camp_id: CAMP }); });
+        });
+        Object.assign(ap, { status: 'accepted', family_id: fam, decided_by: email || 'you', decided_at: now });
+        save();
+        return fam;
+      },
+      set_registration: function (a) {
+        if (!canAny('applications', 'change')) notAllowed();
+        var v = a.p_settings, out = { enabled: !!v.enabled };
+        ['opens_on', 'closes_on', 'intro', 'agreement'].forEach(function (k) { if (v[k] && String(v[k]).trim()) out[k] = String(v[k]).trim(); });
+        if (Array.isArray(v.sessions)) out.sessions = v.sessions;
+        var c = db.camps[0]; c.settings = Object.assign({}, c.settings); c.settings.registration = Object.assign({}, c.settings.registration); c.settings.registration[a.p_kind] = out;
+        save(); return out;
+      },
       report_now: function () {
         if (!canAny('reports', 'see')) notAllowed();
         var last = (db.daily_reports || []).map(function (r) { return r.period_end; }).sort().pop();
