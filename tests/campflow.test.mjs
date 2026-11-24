@@ -114,3 +114,41 @@ test('camper report with plain Camper ID and Family ID numbers', async () => {
   assert.equal(campers[0].family_external_id, 'campflow:10001');
   assert.equal(campers[1].family_external_id, 'campflow:10002');
 });
+
+// Every column of Camp Flow's two reports has a place (shapes from the real reports, made-up values).
+test('campers report: every column kept; family columns go to the family', async () => {
+  const { parseCampers, parseFamilies, campflowDetailKey } = await import('../supabase/functions/_shared/campflow.js');
+  const H = ['Camper ID', 'Enrollment ID', 'Last Name', 'First Name', 'Full Name', 'Grade', 'Bunk', 'Counselor', 'Term', 'Age', 'Shirt Size', 'Yeshiva/School',
+    'Rebbe/Teacher 1', 'Rebbe/Teacher 1 Phone', 'Date of Birth', 'Hebrew Date of Birth', 'Approval Status', 'Applied Date', 'Accepted Date', 'Camper Office Notes',
+    'Camp Attended Summer 2025', 'Camp Attended 2026', 'Allergies/Medical Accommodations', 'Family ID', 'Family Link', 'Father title', 'Mother title',
+    'Father first name', 'Mother first name', 'Family last name', 'Maiden name', 'Father phone', 'Mother phone', 'Father email', 'Mother email',
+    'Father occupation', 'Mother occupation', 'Address', 'City', 'State', 'Zip', 'Country', 'Secondary country', 'Total charges', 'Total payments', 'Balance',
+    'Pending payments', 'Upcoming autopay', 'Balance after expected payments', 'Emergency Contact 1', 'Emergency Contact 2', 'Communication notes'];
+  const row = H.map(h => ({ 'Camper ID': '501', 'Enrollment ID': '9001', 'Last Name': 'Levi', 'First Name': 'Dovi', 'Full Name': 'Dovi Levi', Grade: '8th Grade', Bunk: '8th Grade',
+    Term: 'Full', Age: '13', 'Shirt Size': 'M', 'Yeshiva/School': 'Yeshiva A', 'Rebbe/Teacher 1': 'R. Cohen', 'Rebbe/Teacher 1 Phone': '555-0100', 'Date of Birth': '07/04/2013',
+    'Hebrew Date of Birth': 'ו תמוז', 'Approval Status': 'Pending', 'Applied Date': '11/05/2026 1:50 PM', 'Accepted Date': '', 'Allergies/Medical Accommodations': 'Peanuts',
+    'Family ID': '77', 'Family Link': '=HYPERLINK("https://app.campflow.org/families/77","https://app.campflow.org/families/77")', 'Father first name': 'Moshe',
+    'Family last name': 'Levi', 'Father email': 'M@x.org', 'Communication notes': 'Call after 6' })[h] ?? '');
+  const { campers, extraColumns, problems } = parseCampers([H, row]);
+  assert.equal(problems.length, 0);
+  const c = campers[0];
+  assert.equal(c.approval_status, 'Pending');
+  assert.equal(c.applied_at, '2026-11-05T13:50:00');
+  assert.equal(c.accepted_at, null);
+  assert.equal(c.campflow_enrollment_id, '9001');
+  assert.deepEqual(extraColumns, ['Bunk', 'Counselor', 'Term', 'Shirt Size', 'Yeshiva/School', 'Rebbe/Teacher 1', 'Rebbe/Teacher 1 Phone', 'Hebrew Date of Birth',
+    'Camper Office Notes', 'Camp Attended Summer 2025', 'Camp Attended 2026', 'Allergies/Medical Accommodations']);
+  assert.equal(c.extra['Allergies/Medical Accommodations'], 'Peanuts');
+  assert.equal(campflowDetailKey('Allergies/Medical Accommodations'), 'cf_allergies_medical_accommodations');
+  assert.equal(campflowDetailKey('Rebbe/Teacher 1 Phone'), 'cf_rebbe_teacher_1_phone');
+  // The family's details, for when this report comes before the families report.
+  assert.equal(c.family.last_name, 'Levi');
+  assert.equal(c.family.father_email, 'm@x.org');
+  assert.deepEqual(c.family.extra, { 'Communication notes': 'Call after 6' });
+
+  // Families report: columns with no field of their own are kept in extra.
+  const FH = ['Family ID', 'Family Link', 'Family last name', 'Camper names', 'Camper count', 'Family Office Notes', 'Communication notes', 'Country', 'Disclosure: Photo/Video Release', 'Something new'];
+  const { families } = parseFamilies([FH, ['77', row[H.indexOf('Family Link')], 'Levi', 'Dovi', '1', 'VIP', '', '', 'Yes', 'x']]);
+  assert.deepEqual(families[0].family.extra, { 'Camper count': '1', 'Family Office Notes': 'VIP', 'Something new': 'x' });
+  assert.deepEqual(families[0].family.disclosures, { 'Photo/Video Release': 'Yes' });
+});

@@ -416,15 +416,39 @@
     ['city', 'City', function (r) { return r.f && r.f.city; }],
     ['emergency', 'Emergency contacts', function (r) { return r.f && (r.f.emergency_contacts || []).join('; '); }],
     ['camperid', 'Camp Flow camper ID', function (r) { return (r.external_id || '').replace(/^campflow:camper:/, ''); }, 'num'],
-    ['familyid', 'Camp Flow family ID', function (r) { return r.f ? r.f.external_id.replace(/^campflow:/, '') : ''; }, 'num']
+    ['familyid', 'Camp Flow family ID', function (r) { return r.f ? r.f.external_id.replace(/^campflow:/, '') : ''; }, 'num'],
+    // Everything else from Camp Flow's reports.
+    ['approval', 'Approval status', function (r) { return r.approval_status || ''; }],
+    ['applied', 'Applied', function (r) { var d = r.applied_at || (r.f && r.f.applied_at); return d ? d.slice(0, 10) : ''; }],
+    ['accepted', 'Accepted', function (r) { return r.accepted_at ? r.accepted_at.slice(0, 10) : ''; }],
+    ['enrollment', 'Camp Flow enrollment ID', function (r) { return r.campflow_enrollment_id || ''; }, 'num'],
+    ['familylast', 'Family last name', function (r) { return r.f && r.f.last_name; }],
+    ['ftitle', 'Father title', function (r) { return r.f && r.f.father_title; }],
+    ['mtitle', 'Mother title', function (r) { return r.f && r.f.mother_title; }],
+    ['marital', 'Marital status', function (r) { return r.f && r.f.marital_status; }],
+    ['maiden', 'Maiden name', function (r) { return r.f && r.f.maiden_name; }],
+    ['focc', 'Father occupation', function (r) { return r.f && r.f.father_occupation; }],
+    ['mocc', 'Mother occupation', function (r) { return r.f && r.f.mother_occupation; }],
+    ['state', 'State', function (r) { return r.f && r.f.state; }],
+    ['zip', 'Zip', function (r) { return r.f && r.f.zip; }],
+    ['affiliation', 'Affiliation', function (r) { return r.f && r.f.affiliation; }],
+    ['charges', 'Total charges', function (r) { return r.m ? cents(r.m.total_charges_cents) : ''; }],
+    ['payments', 'Total payments', function (r) { return r.m ? cents(r.m.total_payments_cents) : ''; }],
+    ['balance', 'Balance', function (r) { return r.m ? cents(r.m.balance_cents) : ''; }],
+    ['pending', 'Pending payments', function (r) { return r.m ? cents(r.m.pending_payments_cents) : ''; }],
+    ['autopay', 'Upcoming autopay', function (r) { return r.m ? autopay(r.m.upcoming_autopay) : ''; }],
+    ['after', 'Balance after expected payments', function (r) { return r.m ? cents(r.m.balance_after_expected_cents) : ''; }],
+    ['methods', 'Payment methods', function (r) { return r.m && r.m.payment_methods != null ? String(r.m.payment_methods) : ''; }, 'num'],
+    ['activeap', 'Active autopay', function (r) { return r.m ? r.m.active_autopay || '' : ''; }],
+    ['pausedap', 'Paused autopay', function (r) { return r.m ? r.m.paused_autopay || '' : ''; }]
   ];
   var ROSTER_DEFAULT = ['last', 'first', 'grade', 'age', 'sessions', 'division', 'bunks', 'alert', 'father', 'fphone', 'mother', 'mphone'];
   var gradeRank = function (g) { var m = String(g || '').match(/\d+/); if (m) return +m[0]; return /^k/i.test(g || '') ? 0 : /pre/i.test(g || '') ? -1 : 99; };
 
   function loadRoster(force) {
     if (S.roster && !force) return Promise.resolve(S.roster);
-    var sel = 'id, external_id, first_name, last_name, legal_first, legal_last, hebrew_name, date_of_birth, gender, grade, staff_child, family_id, ' +
-      'families(external_id, last_name, father_first, mother_first, father_phone, mother_phone, father_email, mother_email, address, city, state, zip, emergency_contacts), ' +
+    var sel = 'id, external_id, first_name, last_name, legal_first, legal_last, hebrew_name, date_of_birth, gender, grade, staff_child, family_id, approval_status, applied_at, accepted_at, campflow_enrollment_id, ' +
+      'families(external_id, last_name, father_title, mother_title, father_first, mother_first, father_phone, mother_phone, father_email, mother_email, father_occupation, mother_occupation, marital_status, maiden_name, address, city, state, zip, affiliation, applied_at, emergency_contacts, disclosures, extra), ' +
       'enrollments(sessions(name), divisions(name)), bunk_assignments(bunks(name))';
     var paged = function (q) {
       var out = [];
@@ -434,7 +458,9 @@
     var status = can('form_status') ? loadStatus().catch(function () { return []; }) : Promise.resolve([]);
     var alerts = can('alerts') ? DB.rpc('camper_alerts', { p_camp: S.camp.id }).then(must).catch(function () { return []; }) : Promise.resolve([]);
     var fields = S.items.some(function (i) { return i.kind === 'field' && can(i.key); }) ? paged(function () { return DB.from('camper_fields').select('camper_id, item_key, value').eq('camp_id', S.camp.id); }).catch(function () { return []; }) : Promise.resolve([]);
-    return Promise.all([paged(function () { return DB.from('campers').select(sel).eq('camp_id', S.camp.id).eq('active', true).order('last_name').order('first_name'); }), status, alerts, fields]).then(function (x) {
+    var accounts = can('money') ? paged(function () { return DB.from('finance_accounts').select('*').eq('camp_id', S.camp.id); }).catch(function () { return []; }) : Promise.resolve([]);
+    return Promise.all([paged(function () { return DB.from('campers').select(sel).eq('camp_id', S.camp.id).eq('active', true).order('last_name').order('first_name'); }), status, alerts, fields, accounts]).then(function (x) {
+      var acct = {}; (x[4] || []).forEach(function (a) { acct[a.family_id] = a; });
       var miss = {}; (x[1] || []).forEach(function (s) { miss[s.camper_id] = s.missing; });
       var al = {}; (x[2] || []).forEach(function (a) { al[a.camper_id] = a.alert; });
       var fv = {}; (x[3] || []).forEach(function (f) { (fv[f.camper_id] = fv[f.camper_id] || {})[f.item_key] = f.value; });
@@ -442,7 +468,7 @@
       S.roster = x[0].map(function (c) {
         var dob = c.date_of_birth ? new Date(c.date_of_birth + 'T12:00:00') : null, age = '';
         if (dob) { age = today.getFullYear() - dob.getFullYear(); if (today.getMonth() < dob.getMonth() || (today.getMonth() === dob.getMonth() && today.getDate() < dob.getDate())) age--; }
-        return Object.assign({}, c, { f: c.families, age: age, fields: fv[c.id] || {},
+        return Object.assign({}, c, { f: c.families, m: acct[c.family_id] || null, age: age, fields: fv[c.id] || {},
           sessions: (c.enrollments || []).map(function (e) { return e.sessions && e.sessions.name; }).filter(Boolean),
           divisions: (c.enrollments || []).map(function (e) { return e.divisions && e.divisions.name; }).filter(Boolean),
           bunks: (c.bunk_assignments || []).map(function (b) { return b.bunks && b.bunks.name; }).filter(Boolean),
@@ -459,9 +485,11 @@
 
   // Built-in columns plus the camp's custom details (Settings → Who can see what) this person may see.
   function rosterCols() {
+    var fc = famCols();
     return ROSTER_COLS.concat((S.items || []).filter(function (i) { return i.kind === 'field' && can(i.key); }).map(function (i) {
       return ['f_' + i.key, i.label, function (r) { return r.fields[i.key]; }];
-    }));
+    })).concat(fc.disc.map(function (n) { return ['disc:' + n, 'Disclosure: ' + n, function (r) { return r.f && (r.f.disclosures || {})[n] || ''; }]; }))
+      .concat(fc.extra.map(function (n) { return ['fx:' + n, n, function (r) { return r.f && (r.f.extra || {})[n] || ''; }]; }));
   }
 
   function drawRoster() {
@@ -700,7 +728,8 @@
     var reqs = can('form_status') || can('health_forms') ? activeReqs() : [];
     var parents = fam ? [[fam.father_title, fam.father_first, fam.last_name, fam.father_phone, fam.father_email], [fam.mother_title, fam.mother_first, fam.last_name, fam.mother_phone, fam.mother_email]]
       .filter(function (p) { return p[1]; }) : [];
-    var html = '<p class="noprint"><a href="#' + (can('form_status') ? 'forms' : 'roster') + '">← All campers</a></p><h1>' + esc(c.first_name + ' ' + c.last_name) + '</h1>' +
+    var html = '<p class="noprint"><a href="#' + (can('form_status') ? 'forms' : 'roster') + '">← All campers</a></p><h1>' + esc(c.first_name + ' ' + c.last_name) +
+      (c.approval_status && !/^approved$/i.test(c.approval_status) ? ' <span class="chip warn">' + esc(c.approval_status) + '</span>' : '') + '</h1>' +
       '<p class="muted">' + [c.grade, c.date_of_birth && 'Born ' + day(c.date_of_birth), (row.sessions || []).join(', '), (row.bunks || []).join(', ')].filter(Boolean).map(esc).join(' · ') +
       (siblings.length > 1 ? ' · Siblings: ' + siblings.filter(function (s) { return s.id !== c.id; }).map(function (s) { return '<a href="#camper/' + s.id + '">' + esc(s.first_name) + '</a>'; }).join(', ') : '') + '</p>';
     html += '<div class="two"><div>';
@@ -735,6 +764,12 @@
       (canName ? '<div class="row"><label class="field" style="flex:1">Legal first name<input type="text" id="lfirst" value="' + esc(c.legal_first || '') + '" placeholder="' + esc(c.first_name) + '"></label><label class="field" style="flex:1">Legal last name<input type="text" id="llast" value="' + esc(c.legal_last || '') + '" placeholder="' + esc(c.last_name) + '"></label></div>' +
         '<label class="field">Hebrew name<input type="text" id="hname" value="' + esc(c.hebrew_name || '') + '"></label><label class="check"><input type="checkbox" id="staffc"' + (c.staff_child ? ' checked' : '') + '><span>Child of a camp staff member</span></label><button id="savenames">Save</button>'
         : '<dl class="kv small"><dt>Legal name</dt><dd>' + esc((c.legal_first || c.first_name) + ' ' + (c.legal_last || c.last_name)) + '</dd><dt>Hebrew name</dt><dd>' + esc(c.hebrew_name || '') + '</dd></dl>') + '</div>';
+    // Registration details from Camp Flow (approval, dates) and the family's other Camp Flow columns.
+    var reg = [['Approval status', c.approval_status], ['Applied', c.applied_at && when(c.applied_at)], ['Accepted', c.accepted_at && when(c.accepted_at)], ['Camp Flow enrollment ID', c.campflow_enrollment_id]].filter(function (x) { return x[1]; });
+    var famMore = fam && can('parent_contacts') ? Object.keys(fam.extra || {}).map(function (k) { return [k, fam.extra[k]]; })
+      .concat(Object.keys(fam.disclosures || {}).map(function (k) { return ['Disclosure: ' + k, fam.disclosures[k]]; })) : [];
+    if (reg.length || famMore.length) html += '<div class="card"><h3 style="margin-top:0">Registration</h3><dl class="kv small">' +
+      reg.concat(famMore).map(function (x) { return '<dt>' + esc(x[0]) + '</dt><dd style="white-space:pre-line">' + esc(x[1]) + '</dd>'; }).join('') + '</dl></div>';
     // Custom details the director added (Settings → Who can see what)
     var myFields = (S.items || []).filter(function (i) { return i.kind === 'field' && can(i.key); });
     if (myFields.length) {
@@ -1484,7 +1519,7 @@
     ['division', 'Division', function (c) { return (c.divisions || []).join(' & '); }],
     ['parents', 'Parents', function (c, f) { return f.parents; }],
     ['city', 'City', function (c, f) { return [f.city, f.state].filter(Boolean).join(', '); }],
-    ['applied', 'Applied', function (c, f) { return f.applied_at ? new Date(f.applied_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''; }],
+    ['applied', 'Applied', function (c, f) { var d = c.applied_at || f.applied_at; return d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''; }],
     ['newfamily', 'New family', function (c, f) { return f.new_family ? 'New' : 'Sibling added'; }],
     ['age', 'Age', function (c, f, data) { return ageOn(c.dob, data.to); }],
     ['dob', 'Date of birth', function (c) { return c.dob || ''; }],
@@ -1510,15 +1545,41 @@
     ['alert', 'Medical alert', function (c) { return c.alert; }],
     ['bunk', 'Bunk', function (c) { return (c.bunks || []).join(', '); }],
     ['legal', 'Legal name', function (c) { return c.legal_name; }],
-    ['camper_id', 'Camp Flow camper ID', function (c) { return c.campflow_camper_id; }]
+    ['camper_id', 'Camp Flow camper ID', function (c) { return c.campflow_camper_id; }],
+    ['approval', 'Approval status', function (c, f) { return c.approval_status; }],
+    ['accepted', 'Accepted', function (c, f) { return (c.accepted_at ? new Date(c.accepted_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''); }],
+    ['enrollment', 'Camp Flow enrollment ID', function (c, f) { return c.enrollment_id; }],
+    ['familylast', 'Family last name', function (c, f) { return f.family_last_name || f.last_name; }],
+    ['ftitle', 'Father title', function (c, f) { return f.father_title; }],
+    ['mtitle', 'Mother title', function (c, f) { return f.mother_title; }],
+    ['marital', 'Marital status', function (c, f) { return f.marital_status; }],
+    ['maiden', 'Maiden name', function (c, f) { return f.maiden_name; }],
+    ['focc', 'Father occupation', function (c, f) { return f.father_occupation; }],
+    ['mocc', 'Mother occupation', function (c, f) { return f.mother_occupation; }],
+    ['state', 'State', function (c, f) { return f.state; }],
+    ['zip', 'Zip', function (c, f) { return f.zip; }],
+    ['charges', 'Total charges', function (c, f) { return cents(f.money && f.money.charges); }],
+    ['payments', 'Total payments', function (c, f) { return cents(f.money && f.money.payments); }],
+    ['pending', 'Pending payments', function (c, f) { return cents(f.money && f.money.pending); }],
+    ['autopay', 'Upcoming autopay', function (c, f) { return autopay(f.money && f.money.autopay); }],
+    ['after', 'Balance after expected payments', function (c, f) { return cents(f.money && f.money.after); }],
+    ['methods', 'Payment methods', function (c, f) { return (f.money && f.money.methods != null ? String(f.money.methods) : ''); }],
+    ['activeap', 'Active autopay', function (c, f) { return (f.money && f.money.active_autopay) || ''; }],
+    ['pausedap', 'Paused autopay', function (c, f) { return (f.money && f.money.paused_autopay) || ''; }]
   ];
   var REPORT_DEFAULT = ['name', 'grade', 'sessions', 'parents', 'city', 'applied', 'newfamily'];
+  var cents = function (v) { return v == null || v === '' ? '' : money(v); };
+  var autopay = function (v) { return v == null || v === '' ? '' : /^-?\d+(\.\d+)?$/.test(String(v)) ? money(Math.round(parseFloat(v) * 100)) : String(v); };
+  // Camp Flow's disclosures and other family columns (their names are saved by the import).
+  function famCols() { var k = (S.camp.settings || {}).campflow_family_columns || {}; return { disc: k.disclosures || [], extra: k.extra || [] }; }
   function reportCols(keys) {
     keys = keys && keys.length ? keys : REPORT_DEFAULT;
     if (!keys.some(function (k) { return k === 'name' || k === 'first' || k === 'last'; })) keys = ['name'].concat(keys);   // every report says who
     return keys.map(function (k) {
       var b = REPORT_COLUMNS.find(function (x) { return x[0] === k; });
       if (b) return { key: k, label: b[1], get: b[2] };
+      if (/^disc:/.test(k)) return { key: k, label: 'Disclosure: ' + k.slice(5), get: function (c, f) { return (f.disclosures || {})[k.slice(5)] || ''; } };
+      if (/^fx:/.test(k)) return { key: k, label: k.slice(3), get: function (c, f) { return (f.extra || {})[k.slice(3)] || ''; } };
       var it = (S.items || []).find(function (i) { return i.kind === 'field' && i.key === k; });
       return it ? { key: k, label: it.label, get: function (c) { return (c.fields || {})[k]; } } : null;
     }).filter(Boolean);
@@ -1618,7 +1679,8 @@
         '<label class="check"><input type="checkbox" id="rem"' + (st.reminders_enabled ? ' checked' : '') + '><span>Send automatic reminders on the schedule</span></label>' +
         '<button class="primary">Save</button></form></div>';
       var rcols = (st.report_columns && st.report_columns.length ? st.report_columns : REPORT_DEFAULT).slice();
-      var allCols = REPORT_COLUMNS.map(function (c) { return [c[0], c[1]]; }).concat((S.items || []).filter(function (i) { return i.kind === 'field'; }).map(function (i) { return [i.key, i.label]; }));
+      var allCols = REPORT_COLUMNS.map(function (c) { return [c[0], c[1]]; }).concat((S.items || []).filter(function (i) { return i.kind === 'field'; }).map(function (i) { return [i.key, i.label]; }))
+        .concat(famCols().disc.map(function (n) { return ['disc:' + n, 'Disclosure: ' + n]; })).concat(famCols().extra.map(function (n) { return ['fx:' + n, n]; }));
       var ordered = rcols.map(function (k) { return allCols.find(function (c) { return c[0] === k; }); }).filter(Boolean).concat(allCols.filter(function (c) { return rcols.indexOf(c[0]) < 0; }));
       html += '<div class="card" id="reportcard"><h2 style="margin-top:0">Daily registration report</h2><p class="small muted">New registrations, emailed at 8:00 every morning except Saturday (Sunday covers since Friday). It\'s also under <a href="#reports">Reports</a>.</p><form id="repf">' +
         '<label class="check"><input type="checkbox" id="repon"' + (st.report_enabled === false ? '' : ' checked') + '><span>Send the daily report</span></label>' +

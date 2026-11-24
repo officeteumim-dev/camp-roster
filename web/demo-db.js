@@ -152,6 +152,8 @@
       var c = db.campers.find(function (x) { return x.id === e.camper_id; }), g = parseInt(String(c && c.grade || '').replace(/\D/g, ''), 10);
       e.division_id = !isNaN(g) && g >= 6 ? 'div-2' : 'div-1';
     });
+    // As in a Camp Flow campers report: most campers approved, some pending.
+    db.campers.forEach(function (c, i) { c.approval_status = i % 7 === 3 ? 'Pending' : 'Approved'; });
     sampleReports(db);
     sampleApplications(db);
     return db;

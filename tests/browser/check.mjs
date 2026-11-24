@@ -420,6 +420,7 @@ await demo.screenshot({ path: path.join(out, 'demo-settings-closed.png'), fullPa
   if (!/9th grade and up, ages 14 and up/.test(await lim.locator('summary').innerText())) errors.push('division limits not saved: ' + await lim.locator('summary').innerText());
   await demo.locator('.card', { hasText: 'Camp Flow registrations are for' }).screenshot({ path: path.join(out, 'demo-divisions.png') });
   await demo.goto('http://app.test/#roster'); await demo.waitForTimeout(600);
+  if (!(await demo.locator('text=Approval status').count())) errors.push('no Approval status roster column');
   const rt = await demo.locator('main').innerText();
   if (!/Division/i.test(rt) || !/Juniors/.test(rt) || !/Seniors/.test(rt)) errors.push('roster has no divisions');
   await demo.goto('http://app.test/#settings'); await demo.waitForTimeout(400);

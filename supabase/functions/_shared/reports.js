@@ -41,6 +41,8 @@ const ageOn = (dob, on) => { if (!dob) return ''; const b = new Date(dob + 'T12:
 
 // Columns a director can choose for the report (web/app.js has the same list for Settings and the Reports tab).
 // The camper's name is always the first column.
+const cents = v => v == null || v === '' ? '' : (v < 0 ? '-' : '') + '$' + (Math.abs(v) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const autopay = v => v == null || v === '' ? '' : /^-?\d+(\.\d+)?$/.test(String(v)) ? cents(Math.round(parseFloat(v) * 100)) : String(v);
 export const REPORT_COLUMNS = [
   ['name', 'Camper', (c) => c.name],
   ['last', 'Last name', (c) => c.last_name || String(c.name || '').split(' ').slice(1).join(' ')],
@@ -50,7 +52,7 @@ export const REPORT_COLUMNS = [
   ['division', 'Division', (c) => (c.divisions || []).join(' & ')],
   ['parents', 'Parents', (c, f) => f.parents],
   ['city', 'City', (c, f) => [f.city, f.state].filter(Boolean).join(', ')],
-  ['applied', 'Applied', (c, f, tz) => f.applied_at ? new Date(f.applied_at).toLocaleDateString('en-US', { timeZone: tz, month: 'short', day: 'numeric' }) : ''],
+  ['applied', 'Applied', (c, f, tz) => (c.applied_at || f.applied_at) ? new Date(c.applied_at || f.applied_at).toLocaleDateString('en-US', { timeZone: tz, month: 'short', day: 'numeric' }) : ''],
   ['newfamily', 'New family', (c, f) => f.new_family ? 'New' : 'Sibling added'],
   ['age', 'Age', (c, f, tz, data) => ageOn(c.dob, data.to)],
   ['dob', 'Date of birth', (c) => c.dob || ''],
@@ -76,7 +78,27 @@ export const REPORT_COLUMNS = [
   ['alert', 'Medical alert', (c) => c.alert],
   ['bunk', 'Bunk', (c) => (c.bunks || []).join(', ')],
   ['legal', 'Legal name', (c) => c.legal_name],
-  ['camper_id', 'Camp Flow camper ID', (c) => c.campflow_camper_id]
+  ['camper_id', 'Camp Flow camper ID', (c) => c.campflow_camper_id],
+  ['approval', 'Approval status', (c, f, tz) => c.approval_status],
+  ['accepted', 'Accepted', (c, f, tz) => (c.accepted_at ? new Date(c.accepted_at).toLocaleDateString('en-US', { timeZone: tz, month: 'short', day: 'numeric', year: 'numeric' }) : '')],
+  ['enrollment', 'Camp Flow enrollment ID', (c, f, tz) => c.enrollment_id],
+  ['familylast', 'Family last name', (c, f, tz) => f.family_last_name || f.last_name],
+  ['ftitle', 'Father title', (c, f, tz) => f.father_title],
+  ['mtitle', 'Mother title', (c, f, tz) => f.mother_title],
+  ['marital', 'Marital status', (c, f, tz) => f.marital_status],
+  ['maiden', 'Maiden name', (c, f, tz) => f.maiden_name],
+  ['focc', 'Father occupation', (c, f, tz) => f.father_occupation],
+  ['mocc', 'Mother occupation', (c, f, tz) => f.mother_occupation],
+  ['state', 'State', (c, f, tz) => f.state],
+  ['zip', 'Zip', (c, f, tz) => f.zip],
+  ['charges', 'Total charges', (c, f, tz) => cents(f.money && f.money.charges)],
+  ['payments', 'Total payments', (c, f, tz) => cents(f.money && f.money.payments)],
+  ['pending', 'Pending payments', (c, f, tz) => cents(f.money && f.money.pending)],
+  ['autopay', 'Upcoming autopay', (c, f, tz) => autopay(f.money && f.money.autopay)],
+  ['after', 'Balance after expected payments', (c, f, tz) => cents(f.money && f.money.after)],
+  ['methods', 'Payment methods', (c, f, tz) => (f.money && f.money.methods != null ? String(f.money.methods) : '')],
+  ['activeap', 'Active autopay', (c, f, tz) => (f.money && f.money.active_autopay) || ''],
+  ['pausedap', 'Paused autopay', (c, f, tz) => (f.money && f.money.paused_autopay) || '']
 ];
 export const REPORT_DEFAULT = ['name', 'grade', 'sessions', 'parents', 'city', 'applied', 'newfamily'];
 
@@ -87,7 +109,10 @@ export function reportColumns(chosen, customLabels = {}) {
   return keys.map(k => {
     const b = REPORT_COLUMNS.find(x => x[0] === k);
     if (b) return { key: k, label: b[1], get: b[2] };
-    if (/^f_/.test(k) && customLabels[k]) return { key: k, label: customLabels[k], get: c => (c.fields || {})[k] };
+    if (/^c?f_/.test(k) && customLabels[k]) return { key: k, label: customLabels[k], get: c => (c.fields || {})[k] };
+    // Camp Flow's disclosures and other family columns, by name.
+    if (/^disc:/.test(k)) return { key: k, label: 'Disclosure: ' + k.slice(5), get: (c, f) => (f.disclosures || {})[k.slice(5)] || '' };
+    if (/^fx:/.test(k)) return { key: k, label: k.slice(3), get: (c, f) => (f.extra || {})[k.slice(3)] || '' };
     return null;
   }).filter(Boolean);
 }

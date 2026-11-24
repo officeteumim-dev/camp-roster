@@ -67,50 +67,78 @@ export function detectReport(headers) {
 }
 
 // ---------- Families report ----------
+// Family columns this app has a place for (the rest of a families report's columns are kept in families.extra).
+const FAMILY_COLS = ['Family ID', 'Family Link', 'Father title', 'Mother title', 'Father first name', 'Mother first name', 'Family last name', 'Last name',
+  'Camper names', 'Marital status', 'Maiden name', 'Father phone', 'Mother phone', 'Father email', 'Mother email', 'Father occupation', 'Mother occupation',
+  'Address', 'City', 'State', 'Zip', 'Affiliation', 'Total charges', 'Total payments', 'Balance', 'Pending payments', 'Upcoming autopay',
+  'Balance after expected payments', 'Payment Methods', 'Active Autopay', 'Paused Autopay', 'Emergency Contact 1', 'Emergency Contact 2', 'Applied date'];
+// Columns about the family that a campers report repeats on each camper's row; they belong to the family, not the camper.
+const FAMILY_ONLY = FAMILY_COLS.concat(['Camper count', 'Country', 'Secondary country', 'Family Office Notes', 'Communication notes']);
+
+// One family's details from a row (families report, or the family columns of a campers report).
+function familyRecord(headers, r, col) {
+  const money = k => moneyCents(col(r, k));
+  const disclosureCols = headers.map((h, i) => [h, i]).filter(([h]) => /^disclosure\s*:/i.test(h));
+  const known = new Set(FAMILY_COLS.map(norm));
+  // Everything else about the family that the report has, under Camp Flow's own column names.
+  const extra = {};
+  headers.forEach((h, i) => { const k = norm(h); if (!k || known.has(k) || /^disclosure\s*:/i.test(h) || !FAMILY_ONLY.map(norm).includes(k)) return; const v = clean(r[i]); if (v) extra[clean(h)] = v; });
+  return {
+    family: {
+      last_name: col(r, 'Family last name', 'Last name'),
+      father_title: orNull(col(r, 'Father title')), mother_title: orNull(col(r, 'Mother title')),
+      father_first: orNull(col(r, 'Father first name')), mother_first: orNull(col(r, 'Mother first name')),
+      father_phone: orNull(col(r, 'Father phone')), mother_phone: orNull(col(r, 'Mother phone')),
+      father_email: orNull(col(r, 'Father email').toLowerCase()), mother_email: orNull(col(r, 'Mother email').toLowerCase()),
+      father_occupation: orNull(col(r, 'Father occupation')), mother_occupation: orNull(col(r, 'Mother occupation')),
+      marital_status: orNull(col(r, 'Marital status')), maiden_name: orNull(col(r, 'Maiden name')),
+      address: orNull(col(r, 'Address')), city: orNull(col(r, 'City')), state: orNull(col(r, 'State')), zip: orNull(col(r, 'Zip')),
+      affiliation: orNull(col(r, 'Affiliation')),
+      emergency_contacts: [col(r, 'Emergency Contact 1'), col(r, 'Emergency Contact 2')].filter(Boolean),
+      disclosures: Object.fromEntries(disclosureCols.map(([h, i]) => [clean(h.replace(/^disclosure\s*:\s*/i, '')), clean(r[i])]).filter(([, v]) => v)),
+      applied_at: parseDate(col(r, 'Applied date'), true),
+      extra,
+    },
+    finance: {
+      total_charges_cents: money('Total charges'), total_payments_cents: money('Total payments'), balance_cents: money('Balance'),
+      pending_payments_cents: money('Pending payments'), upcoming_autopay: orNull(col(r, 'Upcoming autopay')),
+      balance_after_expected_cents: money('Balance after expected payments'),
+      payment_methods: col(r, 'Payment Methods') === '' ? null : parseInt(col(r, 'Payment Methods'), 10) || 0,
+      active_autopay: orNull(col(r, 'Active Autopay')), paused_autopay: orNull(col(r, 'Paused Autopay')),
+    },
+  };
+}
+
 export function parseFamilies(rows) {
   const [headers, ...body] = rows;
   const f = finder(headers);
   const col = (r, ...names) => { const i = f(...names); return i >= 0 ? clean(r[i]) : ''; };
-  const disclosureCols = headers.map((h, i) => [h, i]).filter(([h]) => /^disclosure\s*:/i.test(h));
   const out = [], problems = [];
   body.forEach((r, n) => {
     if (r.every(c => !clean(c))) return;
     const id = familyIdFromLink(col(r, 'Family Link'));
     if (!id) { problems.push({ row: n + 2, problem: 'No Camp Flow family link' }); return; }
-    const money = k => moneyCents(col(r, k));
-    out.push({
-      external_id: `campflow:${id}`,
-      family: {
-        last_name: col(r, 'Last name'),
-        father_title: orNull(col(r, 'Father title')), mother_title: orNull(col(r, 'Mother title')),
-        father_first: orNull(col(r, 'Father first name')), mother_first: orNull(col(r, 'Mother first name')),
-        father_phone: orNull(col(r, 'Father phone')), mother_phone: orNull(col(r, 'Mother phone')),
-        father_email: orNull(col(r, 'Father email').toLowerCase()), mother_email: orNull(col(r, 'Mother email').toLowerCase()),
-        father_occupation: orNull(col(r, 'Father occupation')), mother_occupation: orNull(col(r, 'Mother occupation')),
-        marital_status: orNull(col(r, 'Marital status')), maiden_name: orNull(col(r, 'Maiden name')),
-        address: orNull(col(r, 'Address')), city: orNull(col(r, 'City')), state: orNull(col(r, 'State')), zip: orNull(col(r, 'Zip')),
-        affiliation: orNull(col(r, 'Affiliation')),
-        emergency_contacts: [col(r, 'Emergency Contact 1'), col(r, 'Emergency Contact 2')].filter(Boolean),
-        disclosures: Object.fromEntries(disclosureCols.map(([h, i]) => [clean(h.replace(/^disclosure\s*:\s*/i, '')), clean(r[i])]).filter(([, v]) => v)),
-        applied_at: parseDate(col(r, 'Applied date'), true),
-      },
-      camper_names: splitList(col(r, 'Camper names')),
-      finance: {
-        total_charges_cents: money('Total charges'), total_payments_cents: money('Total payments'), balance_cents: money('Balance'),
-        pending_payments_cents: money('Pending payments'), upcoming_autopay: orNull(col(r, 'Upcoming autopay')),
-        balance_after_expected_cents: money('Balance after expected payments'),
-        payment_methods: col(r, 'Payment Methods') === '' ? null : parseInt(col(r, 'Payment Methods'), 10) || 0,
-        active_autopay: orNull(col(r, 'Active Autopay')), paused_autopay: orNull(col(r, 'Paused Autopay')),
-      },
-    });
+    const rec = familyRecord(headers, r, col);
+    // A families report keeps every column it has: anything this app has no field for goes into extra.
+    headers.forEach((h, i) => { const k = norm(h); if (!k || /^disclosure\s*:/i.test(h) || FAMILY_COLS.map(norm).includes(k) || k === norm('Family ID')) return; const v = clean(r[i]); if (v) rec.family.extra[clean(h)] = v; });
+    out.push({ external_id: `campflow:${id}`, family: rec.family, camper_names: splitList(col(r, 'Camper names')), finance: rec.finance });
   });
   return { families: out, problems };
 }
 
 // ---------- Campers report (one row per camper) ----------
+// Campers-report columns with a place in the app (or worked out from others: Full Name, Age).
+const CAMPER_COLS = [['Family Link', 'Family ID', 'FamilyID', 'Household ID', 'Family'], ['Camper first name', 'First name', 'First'], ['Camper last name', 'Last name', 'Last'],
+  ['Camper name', 'Name', 'Camper', 'Full Name'], ['Camper Link', 'Camper ID', 'CamperID', 'Child ID', 'Link'], ['Date of birth', 'DOB', 'Birthday', 'Birth date'], ['Gender', 'Sex'],
+  ['Grade', 'Grade in fall', 'Current grade'], ['Sessions', 'Session', 'Programs', 'Program', 'Registered sessions'], ['Legal first name', 'Legal first'], ['Legal last name', 'Legal last'],
+  ['Hebrew name', 'Hebrew'], ['Staff child', 'Staff kid', 'Staff'], ['Approval Status', 'Status'], ['Applied Date', 'Applied'], ['Accepted Date', 'Accepted'], ['Enrollment ID'], ['Age']];
+
 export function parseCampers(rows) {
   const [headers, ...body] = rows;
   const f = finder(headers);
+  const used = new Set();
+  CAMPER_COLS.forEach(names => { const i = f(...names); if (i >= 0) used.add(i); });
+  headers.forEach((h, i) => { if (FAMILY_ONLY.map(norm).includes(norm(h)) || /^disclosure\s*:/i.test(h)) used.add(i); });
   const col = (r, ...names) => { const i = f(...names); return i >= 0 ? clean(r[i]) : ''; };
   const out = [], problems = [];
   body.forEach((r, n) => {
@@ -121,6 +149,9 @@ export function parseCampers(rows) {
     if (!first) { const whole = col(r, 'Camper name', 'Name', 'Camper'); const parts = whole.split(' '); first = parts.shift() || ''; last = last || parts.join(' '); }
     if (!fam || !first) { problems.push({ row: n + 2, problem: !fam ? 'No Camp Flow family link' : 'No camper name' }); return; }
     const cid = camperIdFromLink(col(r, 'Camper Link', 'Camper ID', 'CamperID', 'Child ID', 'Link'));
+    // Every other camper column (shirt size, school, allergies, ...) becomes a camper detail under Camp Flow's name for it.
+    const extra = {};
+    headers.forEach((h, i) => { if (!used.has(i) && clean(h)) { const v = clean(r[i]); extra[clean(h)] = v; } });
     out.push({
       family_external_id: `campflow:${fam}`,
       external_id: cid ? `campflow:camper:${cid}` : null,
@@ -134,9 +165,16 @@ export function parseCampers(rows) {
       legal_last: orNull(col(r, 'Legal last name', 'Legal last')),
       hebrew_name: orNull(col(r, 'Hebrew name', 'Hebrew')),
       staff_child: f('Staff child', 'Staff kid', 'Staff') >= 0 ? /^(y|yes|true|1|x)$/i.test(col(r, 'Staff child', 'Staff kid', 'Staff')) : null,
+      approval_status: orNull(col(r, 'Approval Status', 'Status')),
+      applied_at: parseDate(col(r, 'Applied Date', 'Applied'), true),
+      accepted_at: parseDate(col(r, 'Accepted Date', 'Accepted'), true),
+      campflow_enrollment_id: orNull(col(r, 'Enrollment ID')),
+      extra,
+      // The family's details, in case this report arrives before the families report that has the family.
+      family: familyRecord(headers, r, col).family,
     });
   });
-  return { campers: out, problems };
+  return { campers: out, problems, extraColumns: headers.filter((h, i) => !used.has(i) && clean(h)).map(clean) };
 }
 
 // ---------- Transactions report (one row per charge or payment) ----------
@@ -212,9 +250,14 @@ export function planCampers(parsed, familyIdByExt, existingCampers) {
     if (!hit) hit = existingCampers.find(c => c.family_id === fid && !used.has(c.id) && norm(c.first_name) === norm(p.first_name) && (!c.external_id || c.external_id === p.external_id));
     const rec = { family_id: fid, external_id: p.external_id, first_name: p.first_name, last_name: p.last_name, date_of_birth: p.date_of_birth, gender: p.gender, grade: p.grade, derived: false };
     // Legal and Hebrew names and the staff-child flag only overwrite what's on file when the report has them.
-    for (const k of ['legal_first', 'legal_last', 'hebrew_name', 'staff_child']) if (p[k] != null) rec[k] = p[k];
-    if (hit) { used.add(hit.id); update.push({ id: hit.id, ...rec, sessions: p.sessions, bunk: p.bunk }); }
-    else insert.push({ ...rec, sessions: p.sessions, bunk: p.bunk });
+    for (const k of ['legal_first', 'legal_last', 'hebrew_name', 'staff_child', 'approval_status', 'applied_at', 'accepted_at', 'campflow_enrollment_id']) if (p[k] != null) rec[k] = p[k];
+    if (hit) { used.add(hit.id); update.push({ id: hit.id, ...rec, sessions: p.sessions, bunk: p.bunk, extra: p.extra || {} }); }
+    else insert.push({ ...rec, sessions: p.sessions, bunk: p.bunk, extra: p.extra || {} });
   }
   return { insert, update, problems };
+}
+
+// The camper-detail key for a Camp Flow column: "cf_" and the column name (e.g. "Shirt Size" -> cf_shirt_size).
+export function campflowDetailKey(header) {
+  return ('cf_' + norm(header).replace(/ /g, '_')).slice(0, 40).replace(/_+$/, '');
 }

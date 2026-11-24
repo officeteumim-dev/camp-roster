@@ -42,6 +42,8 @@ Parents apply at `/register.html?camp=<slug>`: they sign in (Google pop-up or em
 
 Each session offered online has its own link (`&session=<name as a slug>`, only that session); a session with **divisions** (Settings → Sessions; `divisions`, and `enrollments.division_id`) asks parents to choose one, and each division has its own link too (`&session=…&division=<name as a slug>`), which fixes both. Division is a Roster column and a daily report column. Settings → Sessions → "Camp Flow registrations are for" puts Camp Flow campers with no session into that session (`assign_campflow_session`, also run after each import).
 
+**Every Camp Flow column comes in.** Families report: columns without a field of their own go to `families.extra`, disclosures to `families.disclosures` (merged, so registration answers stay), money to `finance_accounts`; their names are saved in `camps.settings.campflow_family_columns` so they're Roster and report columns. Campers report: approval status, applied and accepted dates and enrollment ID have fields on `campers`; every other camper column becomes a camper detail `cf_<column>` (created on import; office can see and change, medical ones also the infirmary), and a family missing from the app is added from the campers report's family columns. Full Name and Age are worked out from other columns.
+
 The Camp Flow import only looks at `campflow:` families, so online families (`online:<application id>`) are never flagged as gone.
 
 ## Staff applications, staff roster and tax forms

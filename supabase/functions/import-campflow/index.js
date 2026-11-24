@@ -78,16 +78,27 @@ async function importFamilies(db, camp, rows) {
   // Camp Flow's application times are the camp's local time.
   for (const p of families) p.family.applied_at = localToIso(p.family.applied_at, camp.timezone || 'America/New_York');
   // Only families that came from Camp Flow: families from online registration are never flagged as gone by this report.
-  const existing = await loadAll(() => db.from('families').select('id, external_id, active').eq('camp_id', camp.id).like('external_id', 'campflow:%'));
+  const existing = await loadAll(() => db.from('families').select('id, external_id, active, disclosures').eq('camp_id', camp.id).like('external_id', 'campflow:%'));
+  const oldDisclosures = new Map(existing.map(f => [f.id, f.disclosures || {}]));
   const plan = CF.planFamilies(families, { families: existing });
   const now = new Date().toISOString();
 
   await chunked(plan.insert, 200, async part => {
     must(await db.from('families').insert(part.map(p => ({ camp_id: camp.id, external_id: p.external_id, ...p.family }))), 'add families');
   });
-  for (const p of plan.update) must(await db.from('families').update({ ...p.family, active: true, missing_since: null, updated_at: now }).eq('id', p.id), 'update family');
+  // Disclosures are merged: answers kept from online registration stay; Camp Flow's own are refreshed.
+  for (const p of plan.update) must(await db.from('families').update({ ...p.family, disclosures: { ...(oldDisclosures.get(p.id) || {}), ...p.family.disclosures }, active: true, missing_since: null, updated_at: now }).eq('id', p.id), 'update family');
   if (plan.deactivate.length) must(await db.from('families').update({ active: false, missing_since: now }).in('id', plan.deactivate), 'flag families');
 
+  // Remember the names of Camp Flow's disclosure and other family columns, for Roster and report columns.
+  {
+    const disc = [...new Set(families.flatMap(p => Object.keys(p.family.disclosures || {})))].sort();
+    const extra = [...new Set(families.flatMap(p => Object.keys(p.family.extra || {})))].sort();
+    const { data: c } = await db.from('camps').select('settings').eq('id', camp.id).single();
+    const prev = (c && c.settings && c.settings.campflow_family_columns) || {};
+    const merge = (a, b) => [...new Set([...(a || []), ...b])].sort();
+    must(await db.from('camps').update({ settings: { ...(c && c.settings || {}), campflow_family_columns: { disclosures: merge(prev.disclosures, disc), extra: merge(prev.extra, extra) } } }).eq('id', camp.id), 'camp settings');
+  }
   const all = await loadAll(() => db.from('families').select('id, external_id').eq('camp_id', camp.id));
   const idByExt = new Map(all.map(f => [f.external_id, f.id]));
 
@@ -106,7 +117,18 @@ async function importFamilies(db, camp, rows) {
 }
 
 async function importCampers(db, camp, rows) {
-  const { campers: parsed, problems } = CF.parseCampers(rows);
+  const { campers: parsed, problems, extraColumns } = CF.parseCampers(rows);
+  const tz = camp.timezone || 'America/New_York';
+  for (const p of parsed) { p.applied_at = localToIso(p.applied_at, tz); p.accepted_at = localToIso(p.accepted_at, tz); }
+  // A family this report has but the app doesn't yet (its families report hasn't been imported): add it from this report.
+  {
+    const have = new Set((await loadAll(() => db.from('families').select('external_id').eq('camp_id', camp.id))).map(f => f.external_id));
+    const add = new Map();
+    for (const p of parsed) if (!have.has(p.family_external_id) && !add.has(p.family_external_id) && p.family && p.family.last_name) {
+      add.set(p.family_external_id, { camp_id: camp.id, external_id: p.family_external_id, ...p.family, applied_at: localToIso(p.family.applied_at, tz) });
+    }
+    if (add.size) must(await db.from('families').insert([...add.values()]), 'add families from the campers report');
+  }
   const fams = await loadAll(() => db.from('families').select('id, external_id').eq('camp_id', camp.id));
   const idByExt = new Map(fams.map(f => [f.external_id, f.id]));
   const cfFamily = new Set(fams.filter(f => f.external_id.startsWith('campflow:')).map(f => f.id));
@@ -125,17 +147,40 @@ async function importCampers(db, camp, rows) {
     return s.id;
   };
 
+  // Camper details for Camp Flow's other columns, under Camp Flow's names (office can see and change them; medical ones
+  // also the infirmary). Directors can change who sees each in Who can see what.
+  const detailKeys = {};
+  for (const h of extraColumns || []) {
+    const key = CF.campflowDetailKey(h); if (!/^[a-z0-9_]{2,40}$/.test(key)) continue;
+    detailKeys[h] = key;
+    must(await db.from('perm_items').upsert({ camp_id: camp.id, key, label: h.slice(0, 80), help: 'From Camp Flow\'s campers report', kind: 'field', sort: 300 }, { onConflict: 'camp_id,key', ignoreDuplicates: true }), 'camper detail');
+    const roles = ['office'].concat(/allerg|medic|health/i.test(h) ? ['infirmary'] : []);
+    must(await db.from('permissions').upsert(roles.map(role_key => ({ camp_id: camp.id, role_key, item_key: key, can_see: true, can_change: true })), { onConflict: 'camp_id,role_key,item_key', ignoreDuplicates: true }), 'camper detail access');
+  }
+  const details = [], cleared = [];
+  const keepDetails = (id, extra) => {
+    for (const [h, key] of Object.entries(detailKeys)) {
+      const v = (extra || {})[h];
+      if (v) details.push({ camper_id: id, camp_id: camp.id, item_key: key, value: String(v).slice(0, 500), updated_by: 'Camp Flow', updated_at: now });
+      else cleared.push([id, key]);
+    }
+  };
+
   const touched = [];
   for (const c of plan.insert) {
-    const { sessions: ss, bunk, ...rec } = c;
+    const { sessions: ss, bunk, extra, ...rec } = c;
     const row = must(await db.from('campers').insert({ camp_id: camp.id, ...rec }).select('id').single(), 'add camper');
-    touched.push([row.id, ss]);
+    touched.push([row.id, ss]); keepDetails(row.id, extra);
   }
   for (const c of plan.update) {
-    const { id, sessions: ss, bunk, ...rec } = c;
+    const { id, sessions: ss, bunk, extra, ...rec } = c;
     must(await db.from('campers').update({ ...rec, active: true, missing_since: null, updated_at: now }).eq('id', id), 'update camper');
-    touched.push([id, ss]);
+    touched.push([id, ss]); keepDetails(id, extra);
   }
+  await chunked(details, 300, async part => { must(await db.from('camper_fields').upsert(part, { onConflict: 'camper_id,item_key' }), 'camper details'); });
+  // A value Camp Flow no longer has is removed.
+  const byKey = {}; cleared.forEach(([id, key]) => (byKey[key] = byKey[key] || []).push(id));
+  for (const [key, ids] of Object.entries(byKey)) await chunked(ids, 200, async part => { must(await db.from('camper_fields').delete().eq('item_key', key).in('camper_id', part), 'camper details'); });
   for (const [id, ss] of touched) {
     if (!ss.length) continue;
     const ids = [];
