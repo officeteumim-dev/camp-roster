@@ -267,6 +267,7 @@
     money: '<path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/>',
     imports: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
     settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+    checks: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>',
     staffroster: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6"/><path d="M22 11h-6"/>',
     applications: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="m9 15 2 2 4-4"/>',
     reports: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 18v-2"/><path d="M12 18v-4"/><path d="M16 18v-6"/>',
@@ -284,6 +285,7 @@
     ['money', 'Money', 'Office', function () { return can('money'); }],
     ['imports', 'Imports', 'Office', function () { return can('imports'); }],
     ['staffroster', 'Staff roster', 'Campers', function () { return can('staff_roster'); }],
+    ['checks', 'Registry checks', 'Campers', function () { return can('registry_checks') && can('staff_roster'); }],
     ['applications', 'Applications', 'Office', function () { return can('applications'); }],
     ['reports', 'Reports', 'Office', function () { return can('reports'); }],
     ['settings', 'Settings', 'Setup', function () { return isDirector(); }],
@@ -379,7 +381,7 @@
     if (!allowed.some(function (p) { return p[0] === page; })) page = allowed[0] ? allowed[0][0] : null;
     markPage(page);
     if (!page) { $main.innerHTML = '<div class="card">Nothing to show for your role yet.</div>'; return; }
-    ({ roster: rosterPage, forms: formsPage, bunks: bunksPage, mybunk: myBunkPage, money: moneyPage, imports: importsPage, reports: reportsPage, applications: applicationsPage, staffroster: staffRosterPage, requests: requestsPage, settings: settingsPage, activity: activityPage })[page]();
+    ({ roster: rosterPage, forms: formsPage, bunks: bunksPage, mybunk: myBunkPage, money: moneyPage, imports: importsPage, reports: reportsPage, applications: applicationsPage, staffroster: staffRosterPage, checks: checksPage, requests: requestsPage, settings: settingsPage, activity: activityPage })[page]();
   }
   // Highlights the current page in the menu and bottom bar, and shows its name in the top bar.
   function markPage(page, title) {
@@ -1118,14 +1120,19 @@
     ['emergency', 'Emergency contact', function (m) { return (m.emergency_contacts || []).join('; '); }],
     ['campexp', 'As a camper', function (m) { return expText((m.experience || {}).camper, ['camp', 'years']); }],
     ['staffexp', 'Staff experience', function (m) { return expText((m.experience || {}).staff, ['camp', 'position', 'years']); }],
-    ['hebrew', 'Hebrew name', function (m) { return m.hebrew_name || ''; }]
+    ['hebrew', 'Hebrew name', function (m) { return m.hebrew_name || ''; }],
+    ['nys', 'NYS registry', function (m) { return m._checks ? checkText(m._checks.nys) || 'Not sent' : ''; }],
+    ['national', 'National registry', function (m) { return m._checks ? checkText(m._checks.national) || 'Not checked' : ''; }]
   ];
-  var STAFF_DEFAULT = ['name', 'positions', 'sessions', 'age', 'phone', 'email', 'school'];
+  var STAFF_DEFAULT = ['name', 'positions', 'sessions', 'age', 'phone', 'email', 'school', 'nys', 'national'];
   function staffRosterPage() {
     var R = S.staffView = S.staffView || { q: '', pos: '', sess: '', sort: 'name', dir: 1, cols: STAFF_DEFAULT.slice(), gone: false };
     $main.innerHTML = '<p class="muted">Loading…</p>';
-    DB.from('staff_members').select('*').eq('camp_id', S.camp.id).order('last_name').order('first_name').limit(5000).then(function (r) {
-      var all = must(r) || [];
+    Promise.all([DB.from('staff_members').select('*').eq('camp_id', S.camp.id).order('last_name').order('first_name').limit(5000),
+      can('registry_checks') ? loadChecks(checkSeason()).catch(function () { return null; }) : Promise.resolve(null)]).then(function (rr) {
+      var all = must(rr[0]) || [];
+      // This season's registry checks, when this person may see them.
+      if (rr[1]) { var ck = {}; rr[1].checks.forEach(function (c) { (ck[c.staff_member_id] = ck[c.staff_member_id] || {})[c.kind] = c; }); all.forEach(function (m) { m._checks = ck[m.id] || {}; }); }
       var custom = {}; all.forEach(function (m) { Object.keys(m.answers || {}).forEach(function (k) { custom[k] = 1; }); });
       var colsAll = STAFF_COLS.concat(Object.keys(custom).map(function (k) { return ['a:' + k, k, function (m) { return (m.answers || {})[k] || ''; }]; }));
       var cols = R.cols.map(function (k) { return colsAll.find(function (c) { return c[0] === k; }); }).filter(Boolean);
@@ -1191,9 +1198,18 @@
           row('Father', par('father')) + row('Mother', par('mother')) + row('Emergency contact', esc((m.emergency_contacts || []).join('; '))) +
           row('As a camper', esc(expText((m.experience || {}).camper, ['camp', 'years']))) + row('Staff experience', esc(expText((m.experience || {}).staff, ['camp', 'position', 'years']))) +
           Object.keys(m.answers || {}).map(function (k) { return row(k, esc(m.answers[k])); }).join('') +
-          taxRow(m.tax_form, row) +
+          taxRow(m.tax_form, row) + '<tr id="regrow"></tr>' +
           row('Application', m.application_id && can('applications') ? '<a href="#applications/' + m.application_id + '">See the application</a>' : '') + '</table></div>');
       bindTaxView();
+      // This person's registry checks, all seasons.
+      if (!isNew && can('registry_checks')) DB.from('staff_checks').select('*').eq('staff_member_id', m.id).order('season', { ascending: false }).then(function (rc) {
+        var list = (rc.data || []), cell = document.getElementById('regrow'); if (!cell) return;
+        var cur = checkSeason(), mine = function (k) { return list.find(function (c) { return c.kind === k && c.season === cur; }); };
+        cell.innerHTML = '<th style="width:170px">Registry checks</th><td>' + cur + ': NYS ' + esc(checkText(mine('nys')) || 'not sent') + ' · National ' + esc(checkText(mine('national')) || 'not checked') +
+          (list.filter(function (c) { return c.note; }).map(function (c) { return '<div class="small muted">' + c.season + ' ' + (c.kind === 'nys' ? 'NYS' : 'National') + ': ' + esc(c.note) + '</div>'; }).join('')) +
+          (list.some(function (c) { return c.season !== cur; }) ? '<div class="small muted">Earlier: ' + list.filter(function (c) { return c.season !== cur; }).map(function (c) { return c.season + ' ' + (c.kind === 'nys' ? 'NYS' : 'National') + ' ' + checkText(c).toLowerCase(); }).map(esc).join(' · ') + '</div>' : '') +
+          ' <a class="small" href="#checks">Registry checks</a></td>';
+      });
       if (!edit) return;
       var vals = function () {
         var o = {}; [].forEach.call($main.querySelectorAll('[data-m]'), function (el) { o[el.dataset.m] = el.value.trim() || null; });
@@ -1212,6 +1228,149 @@
       var act = document.getElementById('mactive'); if (act) act.onclick = function () { DB.from('staff_members').update({ active: !m.active, updated_at: new Date().toISOString() }).eq('id', id).then(must).then(function () { toast(m.active ? 'Moved to past staff' : 'Back on staff'); staffMemberPage(id); }).catch(fail); };
       var del = document.getElementById('mdel'); if (del) del.onclick = function () { if (confirm('Delete ' + m.first_name + ' from the staff roster? This can\'t be undone. ("No longer on staff" keeps their record.)')) DB.from('staff_members').delete().eq('id', id).then(must).then(function () { toast('Deleted'); location.hash = '#staffroster'; }).catch(fail); };
     }).catch(fail);
+  }
+
+
+  // ---------- Staff registry checks (NYS DCJS and the national NSOPW), each season ----------
+  // The season is the year of the next session (or this year).
+  function checkSeason() {
+    var today = new Date().toISOString().slice(0, 10), up = S.sessions.map(function (x) { return x.starts_on; }).filter(function (d) { return d && d >= today; }).sort()[0];
+    return S.checkSeason || +(up || today).slice(0, 4);
+  }
+  var NSOPW = 'https://www.nsopw.gov/search-public-sex-offender-registries';
+  var mdy = function (d) { return d ? d.slice(5, 7) + '/' + d.slice(8, 10) + '/' + d.slice(0, 4) : ''; };
+  var checkText = function (c) {
+    if (!c) return '';
+    var d = new Date(c.checked_on + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return { sent: 'Sent ' + d, clear: 'Clear ' + d, possible_match: 'Possible match' }[c.status] || '';
+  };
+  function loadChecks(season) {
+    return Promise.all([
+      DB.from('staff_checks').select('*').eq('camp_id', S.camp.id).eq('season', season).limit(5000),
+      DB.from('staff_check_batches').select('*').eq('camp_id', S.camp.id).eq('season', season).order('sent_on', { ascending: false })
+    ]).then(function (r) { return { checks: must(r[0]) || [], batches: must(r[1]) || [] }; });
+  }
+  function checksPage() {
+    var season = checkSeason(), tab = S.checkTab || 'nys', edit = can('registry_checks', 'change');
+    $main.innerHTML = '<p class="muted">Loading…</p>';
+    Promise.all([DB.from('staff_members').select('*').eq('camp_id', S.camp.id).eq('active', true).order('last_name').order('first_name').limit(5000), loadChecks(season)]).then(function (r) {
+      var staff = must(r[0]) || [], data = r[1], by = {};
+      data.checks.forEach(function (c) { by[c.staff_member_id + ':' + c.kind] = c; });
+      var get = function (m, kind) { return by[m.id + ':' + kind]; };
+      var done = function (kind) { return staff.filter(function (m) { var c = get(m, kind); return c && c.status === 'clear'; }).length; };
+      var flagged = staff.filter(function (m) { return ['nys', 'national'].some(function (k) { var c = get(m, k); return c && c.status === 'possible_match'; }); });
+      var html = '<h1>Registry checks</h1><p class="muted" style="max-width:820px">New York requires checking every staff member and volunteer against the <strong>NYS</strong> and the <strong>national</strong> sex offender registries before their first day, and every year before they arrive.</p>' +
+        '<div class="row noprint" style="flex-wrap:wrap;gap:10px;align-items:center"><div class="seg">' + [['nys', 'NYS registry (DCJS)', done('nys')], ['national', 'National registry (NSOPW)', done('national')]].map(function (t) {
+          return '<button class="' + (t[0] === tab ? 'primary' : '') + '" data-ctab="' + t[0] + '">' + t[1] + ' · ' + t[2] + '/' + staff.length + '</button>'; }).join('') + '</div>' +
+        '<label class="small">Season <select id="cseason" style="width:auto">' + [season - 1, season, season + 1].map(function (y) { return '<option' + (y === season ? ' selected' : '') + '>' + y + '</option>'; }).join('') + '</select></label></div>' +
+        (flagged.length ? '<div class="card" style="border-color:var(--bad, #b42318)"><strong>Possible match' + (flagged.length > 1 ? 'es' : '') + ':</strong> ' + flagged.map(function (m) { return '<a href="#staffroster/' + m.id + '">' + esc(m.first_name + ' ' + m.last_name) + '</a>'; }).join(', ') +
+          '. Don\'t let them start until it\'s resolved: confirm the person\'s identity with the registry (DCJS: 518-457-3167), and record what you found.</div>' : '');
+      if (!staff.length) html += '<div class="card"><p class="muted" style="margin:0">No one on the staff roster yet.</p></div>';
+      else if (tab === 'nys') html += nysTab(staff, get, data, season, edit);
+      else html += nationalTab(staff, get, season, edit);
+      $main.innerHTML = html;
+      [].forEach.call($main.querySelectorAll('[data-ctab]'), function (b) { b.onclick = function () { S.checkTab = b.dataset.ctab; checksPage(); }; });
+      document.getElementById('cseason').onchange = function (e) { S.checkSeason = +e.target.value; checksPage(); };
+      bindChecks(staff, get, data, season);
+    }).catch(fail);
+  }
+  function nysTab(staff, get, data, season, edit) {
+    var need = staff.filter(function (m) { var c = get(m, 'nys'); return !c; });
+    var noDob = need.filter(function (m) { return !m.date_of_birth; });
+    var d = (S.camp.settings || {}).dcjs || {};
+    var html = '<div class="card"><h2 style="margin-top:0">Send a list to DCJS</h2>' +
+      '<ol class="small" style="line-height:1.7;padding-left:20px;margin-top:0"><li>Tick who to send (everyone not yet sent this season is ticked).</li><li><strong>Download the spreadsheet</strong>: last name, first name and birth date, in DCJS\'s format.</li>' +
+      '<li><strong>Open the email</strong> to SORSearch@dcjs.ny.gov, attach the spreadsheet and send it.</li><li><strong>Mark as sent.</strong> When DCJS replies, record the results below.</li></ol>' +
+      (noDob.length ? '<p class="small" style="color:var(--bad-ink)">DCJS needs a date of birth. Missing for: ' + noDob.map(function (m) { return '<a href="#staffroster/' + m.id + '">' + esc(m.first_name + ' ' + m.last_name) + '</a>'; }).join(', ') + '.</p>' : '') +
+      '<div class="scroll"><table class="grid"><thead><tr><th><input type="checkbox" id="nysall" aria-label="Tick everyone"></th><th>Name</th><th>Date of birth</th><th>Positions</th><th>' + season + '</th></tr></thead><tbody>' +
+      staff.map(function (m) {
+        var c = get(m, 'nys'), tick = !c && m.date_of_birth;
+        return '<tr' + (c && c.status === 'possible_match' ? ' class="pending"' : '') + '><td><input type="checkbox" data-nys="' + m.id + '"' + (tick ? ' checked' : '') + (m.date_of_birth ? '' : ' disabled') + ' aria-label="Send ' + esc(m.first_name) + '"></td><td><a href="#staffroster/' + m.id + '">' + esc(m.last_name + ', ' + m.first_name) + '</a></td><td>' + esc(mdy(m.date_of_birth)) + '</td><td class="small">' + esc((m.positions || []).join(', ')) + '</td><td class="small">' + esc(checkText(c) || 'Not sent') + '</td></tr>';
+      }).join('') + '</tbody></table></div>' +
+      (edit ? '<div class="row" style="flex-wrap:wrap;margin-top:12px"><button id="nysxlsx">Download the spreadsheet (<span id="nyscount">0</span>)</button><button id="nysmail">Open the email</button><button class="primary" id="nyssent">Mark as sent today</button></div>' +
+        '<details style="margin-top:12px"><summary class="small">Your details for the DCJS email' + (d.contact ? '' : ' <span class="chip warn">fill in once</span>') + '</summary><div class="row2x" style="margin-top:8px">' +
+        [['address', 'Camp address'], ['phone', 'Telephone'], ['fax', 'Fax'], ['contact', 'Contact person DCJS can call']].map(function (f) { return '<label class="field">' + f[1] + '<input type="text" data-dcjs="' + f[0] + '" value="' + esc(d[f[0]] || '') + '"></label>'; }).join('') +
+        '</div><button id="dcjssave">Save</button></details>' : '') + '</div>';
+    html += '<div class="card"><h2 style="margin-top:0">Results from DCJS</h2>' + (data.batches.length ? data.batches.map(function (b) {
+      var people = staff.filter(function (m) { var c = get(m, 'nys'); return c && c.batch_id === b.id; });
+      var waiting = people.filter(function (m) { return get(m, 'nys').status === 'sent'; });
+      return '<div class="batch"><div class="row" style="justify-content:space-between;flex-wrap:wrap"><strong>Sent ' + esc(new Date(b.sent_on + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })) + ' · ' + people.length + ' ' + (people.length === 1 ? 'person' : 'people') + '</strong>' +
+        (edit && waiting.length ? '<span class="row" style="gap:6px;align-items:center"><label class="small">DCJS replied on <input type="date" data-replydate="' + b.id + '" value="' + new Date().toISOString().slice(0, 10) + '" style="width:auto"></label><button class="primary" data-allclear="' + b.id + '">All ' + waiting.length + ' are clear</button></span>' : '<span class="chip ' + (waiting.length ? 'warn' : 'good') + '">' + (waiting.length ? waiting.length + ' waiting' : 'Done') + '</span>') + '</div>' +
+        '<div class="small" style="margin-top:6px">' + people.map(function (m) { var c = get(m, 'nys'); return '<span class="who">' + esc(m.first_name + ' ' + m.last_name) + ' <span class="muted">' + esc(checkText(c)) + '</span>' + (edit && c.status !== 'possible_match' ? ' <button class="linkish" data-match="' + c.id + '">possible match?</button>' : '') + (edit && c.status === 'possible_match' ? ' <button class="linkish" data-clearone="' + c.id + '">resolved: clear</button>' : '') + '</span>'; }).join(' · ') + '</div></div>';
+    }).join('') : '<p class="muted" style="margin:0">Nothing sent yet this season.</p>') + '</div>';
+    return html;
+  }
+  function nationalTab(staff, get, season, edit) {
+    var rows = staff.slice().sort(function (a, b) { var ca = get(a, 'national'), cb = get(b, 'national'); return (ca ? 1 : 0) - (cb ? 1 : 0); });
+    var left = staff.filter(function (m) { return !get(m, 'national'); }).length;
+    return '<div class="card"><h2 style="margin-top:0">Search NSOPW name by name</h2><p class="small" style="margin-top:0">For each person: <strong>Copy name</strong>, <strong>Open NSOPW</strong> (it opens in its own tab; keep it open and search there), then record what it found. ' +
+      (left ? '<strong>' + left + ' left</strong> for ' + season + '.' : 'Everyone is done for ' + season + '.') + '</p>' +
+      '<div class="scroll"><table class="grid"><thead><tr><th>Name</th><th>Date of birth</th><th>Lives in</th><th>' + season + '</th>' + (edit ? '<th></th>' : '') + '</tr></thead><tbody>' +
+      rows.map(function (m) {
+        var c = get(m, 'national'), full = (m.first_name + ' ' + m.last_name).trim();
+        return '<tr' + (c && c.status === 'possible_match' ? ' class="pending"' : '') + '><td><a href="#staffroster/' + m.id + '">' + esc(m.last_name + ', ' + m.first_name) + '</a></td><td>' + esc(mdy(m.date_of_birth)) + '</td><td class="small">' + esc([m.city, m.state].filter(Boolean).join(', ')) + '</td>' +
+          '<td class="small">' + (c ? esc(checkText(c)) + (c.checked_by ? '<div class="muted">' + esc(c.checked_by) + '</div>' : '') + (c.note ? '<div class="muted">' + esc(c.note) + '</div>' : '') : '<span class="muted">Not checked</span>') + '</td>' +
+          (edit ? '<td><div class="row" style="flex-wrap:wrap;gap:6px">' + (!c ? '<button data-copy-name="' + esc(full) + '">Copy name</button><a class="btn" href="' + NSOPW + '" target="nsopw" rel="noopener">Open NSOPW</a><button class="primary" data-nat="' + m.id + '" data-res="clear">No match</button><button data-nat="' + m.id + '" data-res="possible_match">Possible match</button>'
+            : '<button data-natundo="' + c.id + '">Undo</button>' + (c.status === 'possible_match' ? '<button data-natclear="' + c.id + '">Resolved: clear</button>' : '')) + '</div></td>' : '') + '</tr>';
+      }).join('') + '</tbody></table></div></div>';
+  }
+  function bindChecks(staff, get, data, season) {
+    var me = S.user.email, today = new Date().toISOString().slice(0, 10), again = function (msg) { if (msg) toast(msg); checksPage(); };
+    var picked = function () { return [].filter.call($main.querySelectorAll('[data-nys]'), function (x) { return x.checked; }).map(function (x) { return staff.find(function (m) { return m.id === x.dataset.nys; }); }); };
+    var count = function () { var n = document.getElementById('nyscount'); if (n) n.textContent = picked().length; };
+    [].forEach.call($main.querySelectorAll('[data-nys]'), function (x) { x.onchange = count; });
+    var all = document.getElementById('nysall'); if (all) all.onchange = function () { [].forEach.call($main.querySelectorAll('[data-nys]:not(:disabled)'), function (x) { x.checked = all.checked; }); count(); };
+    count();
+    var fileName = function () { return 'DCJS registry search - ' + S.camp.name.replace(/[^A-Za-z0-9 ]+/g, '') + ' - ' + today + '.xlsx'; };
+    var x = document.getElementById('nysxlsx');
+    if (x) x.onclick = function () {
+      var list = picked(); if (!list.length) return toast('Tick at least one person.');
+      var rows = [['LastName', 'FirstName', 'Birth_Date', 'SSN']].concat(list.map(function (m) { return [m.last_name, m.first_name, mdy(m.date_of_birth), '']; }));
+      var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([window.XlsxWrite.make(rows, 'Registry search')], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      a.download = fileName(); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); }, 30000);
+    };
+    var mail = document.getElementById('nysmail');
+    if (mail) mail.onclick = function () {
+      var d = (S.camp.settings || {}).dcjs || {}, n = picked().length;
+      var body = 'Please search the attached list of ' + n + ' ' + (n === 1 ? 'person' : 'people') + ' against the NYS Sex Offender Registry (children\'s camp employees and volunteers).\n\n' +
+        S.camp.name + '\n' + (d.address ? d.address + '\n' : '') + (d.phone ? 'Telephone: ' + d.phone + '\n' : '') + (d.fax ? 'Fax: ' + d.fax + '\n' : '') + (d.contact ? 'Contact person: ' + d.contact + '\n' : '') +
+        '\nAttached: ' + fileName() + '\n\nThank you.';
+      location.href = 'mailto:SORSearch@dcjs.ny.gov?subject=' + encodeURIComponent('800 # Search') + '&body=' + encodeURIComponent(body);
+      if (!d.contact) toast('Tip: fill in your details for the DCJS email below once; DCJS needs an address, phone and contact person.');
+    };
+    var sent = document.getElementById('nyssent');
+    if (sent) sent.onclick = function () {
+      var list = picked(); if (!list.length) return toast('Tick at least one person.');
+      if (!confirm('Mark ' + list.length + ' as sent to DCJS today?')) return;
+      DB.from('staff_check_batches').insert({ camp_id: S.camp.id, season: season, sent_on: today, sent_by: me }).select().single().then(must).then(function (b) {
+        return DB.from('staff_checks').upsert(list.map(function (m) { return { camp_id: S.camp.id, staff_member_id: m.id, kind: 'nys', season: season, status: 'sent', batch_id: b.id, checked_on: today, checked_by: me }; }), { onConflict: 'staff_member_id,kind,season' });
+      }).then(must).then(function () { again('Marked as sent. Record DCJS\'s answer below when it comes.'); }).catch(fail);
+    };
+    var dsave = document.getElementById('dcjssave');
+    if (dsave) dsave.onclick = function () {
+      var d = {}; [].forEach.call($main.querySelectorAll('[data-dcjs]'), function (i) { d[i.dataset.dcjs] = i.value.trim(); });
+      var s2 = Object.assign({}, S.camp.settings, { dcjs: d });
+      DB.from('camps').update({ settings: s2 }).eq('id', S.camp.id).then(must).then(function () { S.camp.settings = s2; toast('Saved'); }).catch(fail);
+    };
+    [].forEach.call($main.querySelectorAll('[data-allclear]'), function (b) {
+      b.onclick = function () {
+        var iso = ($main.querySelector('[data-replydate="' + b.dataset.allclear + '"]') || {}).value || today;
+        DB.from('staff_checks').update({ status: 'clear', checked_on: iso, checked_by: me }).eq('batch_id', b.dataset.allclear).eq('status', 'sent').then(must).then(function () { again('Recorded: clear'); }).catch(fail);
+      };
+    });
+    var setOne = function (id, patch, msg) { DB.from('staff_checks').update(Object.assign({ checked_by: me }, patch)).eq('id', id).then(must).then(function () { again(msg); }).catch(fail); };
+    [].forEach.call($main.querySelectorAll('[data-match]'), function (b) { b.onclick = function () { var n = prompt('Possible match. What did DCJS say? (kept with the check)'); if (n === null) return; setOne(b.dataset.match, { status: 'possible_match', note: n.trim() || null, checked_on: today }, 'Recorded as a possible match'); }; });
+    [].forEach.call($main.querySelectorAll('[data-clearone],[data-natclear]'), function (b) { b.onclick = function () { var n = prompt('How was it resolved? (kept with the check)'); if (n === null) return; setOne(b.dataset.clearone || b.dataset.natclear, { status: 'clear', note: n.trim() || null, checked_on: today }, 'Recorded: clear'); }; });
+    [].forEach.call($main.querySelectorAll('[data-copy-name]'), function (b) { b.onclick = function () { navigator.clipboard.writeText(b.dataset.copyName).then(function () { toast('Copied: ' + b.dataset.copyName); }, function () { prompt('Copy this name:', b.dataset.copyName); }); }; });
+    [].forEach.call($main.querySelectorAll('[data-nat]'), function (b) {
+      b.onclick = function () {
+        var note = null;
+        if (b.dataset.res === 'possible_match') { note = prompt('Possible match. What did NSOPW show? (kept with the check)'); if (note === null) return; }
+        DB.from('staff_checks').upsert({ camp_id: S.camp.id, staff_member_id: b.dataset.nat, kind: 'national', season: season, status: b.dataset.res, checked_on: today, checked_by: me, note: note && note.trim() || null }, { onConflict: 'staff_member_id,kind,season' })
+          .then(must).then(function () { again(b.dataset.res === 'clear' ? 'Recorded: no match' : 'Recorded as a possible match'); }).catch(fail);
+      };
+    });
+    [].forEach.call($main.querySelectorAll('[data-natundo]'), function (b) { b.onclick = function () { DB.from('staff_checks').delete().eq('id', b.dataset.natundo).then(must).then(function () { again('Undone'); }).catch(fail); }; });
   }
 
   // ---------- Online applications ----------

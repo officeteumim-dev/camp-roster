@@ -459,7 +459,7 @@ if (await demo.locator('[data-approve]').count()) errors.push('office sees Appro
 await viewAs('infirmary');
 if (/Settings|Money/.test(await nav())) errors.push('infirmary nav: ' + await nav());
 await viewAs('director');
-if (await nav() !== 'Roster,Forms,Bunks,Staff roster,Money,Imports,Applications,Reports,Settings,Activity') errors.push('director nav: ' + await nav());
+if (await nav() !== 'Roster,Forms,Bunks,Staff roster,Registry checks,Money,Imports,Applications,Reports,Settings,Activity') errors.push('director nav: ' + await nav());
 
 // Who can see what (test camp): add a Kitchen role that sees names and alerts, then view as Kitchen.
 await demo.goto('http://app.test/#settings/access'); await demo.waitForTimeout(600);
@@ -589,7 +589,28 @@ if (!(await demo.locator('#r_pos').count()) || await demo.locator('#addplan').co
 await demo.locator('#r_pos').fill('Lifeguard\nWaiter\nArts and crafts'); await demo.locator('#regf button.primary').click(); await demo.waitForTimeout(400);
 await demo.goto('http://app.test/#applications/sapp-2'); await demo.waitForTimeout(400);
 if (!(await demo.locator('[data-hpos][value="Arts and crafts"]').count())) errors.push('new position not offered when hiring');
+// Registry checks: DCJS spreadsheet for the unsent, mark as sent, DCJS reply; NSOPW one by one.
+await demo.goto('http://app.test/#checks'); await demo.waitForTimeout(500);
+const ticked = await demo.locator('[data-nys]:checked').count();
+if (ticked < 20) errors.push('unsent staff not ticked for DCJS: ' + ticked);
+const [dcjsDl] = await Promise.all([demo.waitForEvent('download'), demo.locator('#nysxlsx').click()]);
+const dlPath = path.join(out, 'dcjs.xlsx'); await dcjsDl.saveAs(dlPath);
+{ const { readXlsx } = await import('../../supabase/functions/_shared/xlsx.js'); const { rows } = await readXlsx(new Uint8Array(await readFile(dlPath)));
+  if (rows[0].join() !== 'LastName,FirstName,Birth_Date,SSN' || rows.length !== ticked + 1 || !/^\d\d\/\d\d\/\d{4}$/.test(rows[1][2])) errors.push('DCJS spreadsheet wrong: ' + JSON.stringify(rows.slice(0, 2))); }
+await demo.locator('#nyssent').click(); await demo.waitForTimeout(500);
+await demo.locator('[data-allclear]').first().click(); await demo.waitForTimeout(500);
+{ const m = (await demo.locator('[data-ctab="nys"]').innerText()).match(/(\d+)\/(\d+)/); if (!m || +m[1] < +m[2] - 3) errors.push('DCJS results not recorded: ' + (m && m[0])); }
+await demo.screenshot({ path: path.join(out, 'demo-checks-nys.png'), fullPage: true });
+await demo.locator('[data-ctab="national"]').click(); await demo.waitForTimeout(400);
+const before = await demo.locator('[data-ctab="national"]').innerText();
+await demo.locator('[data-nat][data-res="clear"]').first().click(); await demo.waitForTimeout(400);
+if (before === await demo.locator('[data-ctab="national"]').innerText()) errors.push('NSOPW result not recorded');
+if (!(await demo.locator('a[href="https://www.nsopw.gov/search-public-sex-offender-registries"]').count())) errors.push('no NSOPW link');
+await demo.screenshot({ path: path.join(out, 'demo-checks-national.png'), fullPage: true });
+await demo.goto('http://app.test/#staffroster'); await demo.waitForTimeout(500);
+if (!/NYS registry/i.test(await demo.locator('main thead').innerText())) errors.push('no registry columns on the staff roster');
 await viewAs('counselor@bunk-boys-1');
+if (/Registry checks/.test(await nav())) errors.push('counselor sees registry checks');
 if (/Staff roster/.test(await nav())) errors.push('counselor sees the staff roster');
 if (/Applications/.test(await nav())) errors.push('counselor sees Applications');
 if (/Reports/.test(await nav())) errors.push('counselor sees Reports');

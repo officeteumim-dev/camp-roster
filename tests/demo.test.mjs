@@ -137,6 +137,7 @@ test('who-sees-what defaults in the test camp match the database migration', asy
   fromSql.push(['office', 'applications', 1, 1]);   // added by migration 20261117000015
   fromSql.push(['office', 'staff_roster', 1, 1]);   // added by migration 20261117000017
   fromSql.push(['finance', 'tax_forms', 1, 0]);   // added by migration 20261117000018
+  fromSql.push(['office', 'registry_checks', 1, 1]);   // added by migration 20261124000024
   assert.deepEqual(plain(DemoDB.PERM_DEFAULTS).sort(), fromSql.sort());
 });
 

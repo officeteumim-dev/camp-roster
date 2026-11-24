@@ -279,7 +279,7 @@ end $$; rollback;
 -- ---------- Who-sees-what table ----------
 do $$ begin
   assert (select count(*) from roles where camp_id = '00000000-0000-0000-0000-0000000000c1') = 6, 'six built-in roles';
-  assert (select count(*) from perm_items where camp_id = '00000000-0000-0000-0000-0000000000c1') = 14, 'fourteen built-in items (with the daily report, applications, staff roster and tax forms)';
+  assert (select count(*) from perm_items where camp_id = '00000000-0000-0000-0000-0000000000c1') = 15, 'fifteen built-in items (with the daily report, applications, staff roster, tax forms and registry checks)';
 end $$;
 
 -- Only the director edits the table; the director keeps full access.
@@ -761,6 +761,38 @@ end $$;
 reset role;
 set local role service_role;
 do $$ begin assert registration_report('00000000-0000-0000-0000-0000000000c1', now() - interval '1 hour', now() + interval '1 hour') -> 'list' @> '[{"campers":[{"divisions":["Juniors"]}]}]', 'division in the report'; end $$;
+rollback;
+
+
+-- ---------- Staff registry checks ----------
+begin;
+set local role service_role;
+insert into staff_members (id, camp_id, first_name, last_name, date_of_birth) values
+  ('00000000-0000-0000-0000-00000000a5f1', '00000000-0000-0000-0000-0000000000c1', 'Avi', 'Stein', '2008-04-01'),
+  ('00000000-0000-0000-0000-00000000a5f2', '00000000-0000-0000-0000-0000000000c2', 'Other', 'Camp', '2008-04-01');
+reset role;
+do $$ begin perform pg_temp.as_user('coun@x.org'); end $$;
+do $$ begin
+  assert (select count(*) from staff_checks) = 0;
+  begin insert into staff_checks (camp_id, staff_member_id, kind, season, status) values ('00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-00000000a5f1', 'national', 2027, 'clear'); raise exception 'counselor recorded a check';
+  exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+do $$ begin perform pg_temp.as_user('office@x.org'); end $$;
+do $$ declare b uuid; begin
+  insert into staff_check_batches (camp_id, season, sent_by) values ('00000000-0000-0000-0000-0000000000c1', 2027, 'office@x.org') returning id into b;
+  insert into staff_checks (camp_id, staff_member_id, kind, season, status, batch_id) values ('00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-00000000a5f1', 'nys', 2027, 'sent', b);
+  update staff_checks set status = 'clear' where batch_id = b;
+  insert into staff_checks (camp_id, staff_member_id, kind, season, status) values ('00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-00000000a5f1', 'national', 2027, 'clear');
+  begin insert into staff_checks (camp_id, staff_member_id, kind, season, status) values ('00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-00000000a5f1', 'national', 2027, 'clear'); raise exception 'two checks a season';
+  exception when unique_violation then null; end;
+  begin insert into staff_checks (camp_id, staff_member_id, kind, season, status) values ('00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-00000000a5f2', 'national', 2027, 'clear'); raise exception 'other camp''s staff';
+  exception when raise_exception then if sqlerrm not like 'That staff member%' then raise; end if; end;
+  assert (select count(*) from staff_checks where status = 'clear') = 2;
+end $$;
+reset role;
+do $$ begin perform pg_temp.as_user('fin@x.org'); end $$;
+do $$ begin assert (select count(*) from staff_checks) = 0, 'finance does not see checks by default'; end $$;
 rollback;
 
 \echo 'ALL DATABASE TESTS PASSED'

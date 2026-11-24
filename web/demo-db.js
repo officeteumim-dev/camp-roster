@@ -252,6 +252,15 @@
           answers: {}, notes: null, active: true, created_by: 'sample', created_at: ago(500), updated_at: ago(500) });
       }
     });
+    // Registry checks this season: the first dozen sent to DCJS and cleared; some searched on NSOPW.
+    var season = +String(db.sessions.map(function (x) { return x.starts_on; }).filter(Boolean).sort()[0] || new Date().toISOString()).slice(0, 4);
+    var today2 = new Date().toISOString().slice(0, 10), monthAgo = new Date(now - 30 * 864e5).toISOString().slice(0, 10);
+    db.staff_check_batches = [{ id: 'batch-1', camp_id: CAMP, season: season, kind: 'nys', sent_on: monthAgo, sent_by: 'office@example.com', note: null }];
+    db.staff_checks = [];
+    db.staff_members.forEach(function (m, i) {
+      if (i < 12) db.staff_checks.push({ id: 'chk-n' + i, camp_id: CAMP, staff_member_id: m.id, kind: 'nys', season: season, status: i < 10 ? 'clear' : 'sent', batch_id: 'batch-1', checked_on: i < 10 ? today2 : monthAgo, checked_by: 'office@example.com', note: null });
+      if (i % 2 === 0) db.staff_checks.push({ id: 'chk-x' + i, camp_id: CAMP, staff_member_id: m.id, kind: 'national', season: season, status: 'clear', batch_id: null, checked_on: today2, checked_by: 'office@example.com', note: null });
+    });
     var st = function (id, email, status, hours, d) { var x = app(id, email, status, hours, d); x.kind = 'staff'; x.signature = status === 'draft' ? null : d.first + ' ' + d.last; return x; };
     var back = db.staff_members[0];
     db.applications.push(
@@ -397,12 +406,13 @@
     ['reports', 'Daily registration report', 'New registrations each morning, and who it is emailed to'],
     ['applications', 'Applications', 'Online applications. Change: accept, waitlist or decline them, and set up online registration'],
     ['staff_roster', 'Staff roster', 'Everyone working at camp: contacts, positions, sessions. Change: hire, add and edit staff'],
-    ['tax_forms', 'Staff tax forms', 'W-4 and W-9 forms staff upload (they include Social Security numbers). Change: add or remove them']];
+    ['tax_forms', 'Staff tax forms', 'W-4 and W-9 forms staff upload (they include Social Security numbers). Change: add or remove them'],
+    ['registry_checks', 'Staff registry checks', 'NYS and national sex offender registry checks for staff. Change: record checks and results']];
   // [role, item, see, change]: tests/demo.test.mjs checks these match the database migration.
   var PERM_DEFAULTS = [['office', 'roster', 1, 1], ['office', 'parent_contacts', 1, 1], ['office', 'alerts', 1, 0], ['office', 'health_forms', 1, 0], ['office', 'form_status', 1, 1],
     ['office', 'bunks', 1, 1], ['office', 'imports', 1, 1], ['office', 'setup', 1, 1], ['finance', 'roster', 1, 0], ['finance', 'parent_contacts', 1, 0], ['finance', 'money', 1, 0],
     ['infirmary', 'roster', 1, 0], ['infirmary', 'parent_contacts', 1, 0], ['infirmary', 'alerts', 1, 1], ['infirmary', 'health_forms', 1, 1], ['infirmary', 'form_status', 1, 0], ['infirmary', 'bunks', 1, 0],
-    ['head_counselor', 'roster', 1, 0], ['head_counselor', 'alerts', 1, 0], ['head_counselor', 'bunks', 1, 1], ['counselor', 'roster', 1, 0], ['counselor', 'alerts', 1, 0], ['counselor', 'bunks', 1, 0], ['office', 'reports', 1, 0], ['office', 'applications', 1, 1], ['office', 'staff_roster', 1, 1], ['finance', 'tax_forms', 1, 0]];
+    ['head_counselor', 'roster', 1, 0], ['head_counselor', 'alerts', 1, 0], ['head_counselor', 'bunks', 1, 1], ['counselor', 'roster', 1, 0], ['counselor', 'alerts', 1, 0], ['counselor', 'bunks', 1, 0], ['office', 'reports', 1, 0], ['office', 'applications', 1, 1], ['office', 'staff_roster', 1, 1], ['finance', 'tax_forms', 1, 0], ['office', 'registry_checks', 1, 1]];
   function seedAccess(db) {
     db.roles = ROLE_DEFAULTS.map(function (r, i) { return { camp_id: CAMP, key: r[0], label: r[1], scope: r[2], builtin: true, sort: i + 1 }; });
     db.perm_items = ITEM_DEFAULTS.map(function (r, i) { return { camp_id: CAMP, key: r[0], label: r[1], help: r[2], kind: 'builtin', sort: i + 1 }; });
@@ -467,6 +477,7 @@
         case 'daily_reports': return canAny('reports', 'see');
         case 'applications': return canAny('applications', 'see');
         case 'staff_members': return canAny('staff_roster', 'see');
+        case 'staff_checks': case 'staff_check_batches': return canAny('registry_checks', 'see');
         default: return false;
       }
     }
@@ -484,6 +495,7 @@
         case 'camper_fields': return canCamper(row.camper_id, row.item_key, 'change');
         case 'applications': return op === 'update' && canAny('applications', 'change');
         case 'staff_members': return op === 'delete' ? me.role === 'director' : canAny('staff_roster', 'change');
+        case 'staff_checks': case 'staff_check_batches': return canAny('registry_checks', 'change');
         default: return false;
       }
     }
@@ -519,7 +531,7 @@
           if (!rows.every(function (r) { return writable(table, 'insert', r); })) return refused();
           rows.forEach(function (r) {
             if (st.op === 'upsert') {
-              var keyCols = table === 'camper_health' ? ['camper_id'] : table === 'finance_accounts' ? ['family_id'] : table === 'permissions' ? ['role_key', 'item_key'] : table === 'camper_fields' ? ['camper_id', 'item_key'] : ['id'];
+              var keyCols = table === 'camper_health' ? ['camper_id'] : table === 'finance_accounts' ? ['family_id'] : table === 'permissions' ? ['role_key', 'item_key'] : table === 'camper_fields' ? ['camper_id', 'item_key'] : table === 'staff_checks' ? ['staff_member_id', 'kind', 'season'] : ['id'];
               var hit = db[table].find(function (x) { return keyCols.every(function (k) { return x[k] === r[k]; }); });
               if (hit) { Object.assign(hit, r); return; }
             }
