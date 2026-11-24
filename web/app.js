@@ -1250,6 +1250,34 @@
       DB.from('staff_check_batches').select('*').eq('camp_id', S.camp.id).eq('season', season).order('sent_on', { ascending: false })
     ]).then(function (r) { return { checks: must(r[0]) || [], batches: must(r[1]) || [] }; });
   }
+
+  // Registry records (DCJS letters, NSOPW screenshots): private files, opened with a one-minute link.
+  function storeRegistryFile(file, season, label) {
+    var ext = (file.name && /\.[A-Za-z0-9]{2,5}$/.test(file.name) ? file.name.match(/\.[A-Za-z0-9]{2,5}$/)[0] : file.type === 'application/pdf' ? '.pdf' : file.type === 'image/jpeg' ? '.jpg' : '.png').toLowerCase();
+    var name = (label + ' ' + new Date().toISOString().slice(0, 10)).replace(/[^A-Za-z0-9 ._-]+/g, '') + ext;
+    var path = S.camp.id + '/' + season + '/' + Date.now() + '-' + Math.random().toString(36).slice(2, 6) + '-' + name.replace(/ /g, '_');
+    var meta = { path: path, name: name, at: new Date().toISOString(), by: S.user.email };
+    if (file.size > 15 * 1024 * 1024) return Promise.reject(said('That file is over 15 MB.'));
+    if (S.demo) return Promise.resolve(meta);
+    return sb.storage.from('registry-results').upload(path, file, { upsert: false, contentType: file.type || 'image/png' }).then(function (r) { if (r.error) throw r.error; return meta; });
+  }
+  function fileLinks(files) { return (files || []).map(function (f, i) { return '<button type="button" class="linkish" data-regfile="' + esc(f.path) + '">' + ((files.length > 1) ? 'Record ' + (i + 1) : 'View record') + '</button>'; }).join(' '); }
+  function bindRegFiles() {
+    [].forEach.call($main.querySelectorAll('[data-regfile]'), function (b) {
+      b.onclick = function () {
+        if (S.demo) return toast('In ' + DEMO.NAME + ' no file is kept. In your own camp this opens the saved record.');
+        var w = window.open('', '_blank');
+        sb.storage.from('registry-results').createSignedUrl(b.dataset.regfile, 60).then(function (r) { if (r.error) throw r.error; if (w) w.location = r.data.signedUrl; else location.href = r.data.signedUrl; }).catch(function (e) { if (w) w.close(); fail(e); });
+      };
+    });
+  }
+  // One paste listener for the whole app; the registry page says what to do with a pasted picture.
+  document.addEventListener('paste', function (e) {
+    if (!S.onPasteImage || !/^#checks/.test(location.hash)) return;
+    var items = (e.clipboardData && e.clipboardData.items) || [], f = null;
+    for (var i = 0; i < items.length; i++) if (items[i].kind === 'file' && /^image\//.test(items[i].type)) { f = items[i].getAsFile(); break; }
+    if (f) { e.preventDefault(); S.onPasteImage(f); }
+  });
   function checksPage() {
     var season = checkSeason(), tab = S.checkTab || 'nys', edit = can('registry_checks', 'change');
     $main.innerHTML = '<p class="muted">Loading…</p>';
@@ -1280,14 +1308,14 @@
     var d = (S.camp.settings || {}).dcjs || {};
     var html = '<div class="card"><h2 style="margin-top:0">Send a list to DCJS</h2>' +
       '<ol class="small" style="line-height:1.7;padding-left:20px;margin-top:0"><li>Tick who to send (everyone not yet sent this season is ticked).</li><li><strong>Download the spreadsheet</strong>: last name, first name and birth date, in DCJS\'s format.</li>' +
-      '<li><strong>Open the email</strong> to SORSearch@dcjs.ny.gov, attach the spreadsheet and send it.</li><li><strong>Mark as sent.</strong> When DCJS replies, record the results below.</li></ol>' +
+      '<li><strong>Write the email in Gmail</strong>: it opens ready to send to SORSearch@dcjs.ny.gov. Attach the spreadsheet (a link can\'t attach it for you) and send.</li><li><strong>Mark as sent.</strong> When DCJS replies, upload their results letter and record the results below.</li></ol>' +
       (noDob.length ? '<p class="small" style="color:var(--bad-ink)">DCJS needs a date of birth. Missing for: ' + noDob.map(function (m) { return '<a href="#staffroster/' + m.id + '">' + esc(m.first_name + ' ' + m.last_name) + '</a>'; }).join(', ') + '.</p>' : '') +
       '<div class="scroll"><table class="grid"><thead><tr><th><input type="checkbox" id="nysall" aria-label="Tick everyone"></th><th>Name</th><th>Date of birth</th><th>Positions</th><th>' + season + '</th></tr></thead><tbody>' +
       staff.map(function (m) {
         var c = get(m, 'nys'), tick = !c && m.date_of_birth;
         return '<tr' + (c && c.status === 'possible_match' ? ' class="pending"' : '') + '><td><input type="checkbox" data-nys="' + m.id + '"' + (tick ? ' checked' : '') + (m.date_of_birth ? '' : ' disabled') + ' aria-label="Send ' + esc(m.first_name) + '"></td><td><a href="#staffroster/' + m.id + '">' + esc(m.last_name + ', ' + m.first_name) + '</a></td><td>' + esc(mdy(m.date_of_birth)) + '</td><td class="small">' + esc((m.positions || []).join(', ')) + '</td><td class="small">' + esc(checkText(c) || 'Not sent') + '</td></tr>';
       }).join('') + '</tbody></table></div>' +
-      (edit ? '<div class="row" style="flex-wrap:wrap;margin-top:12px"><button id="nysxlsx">Download the spreadsheet (<span id="nyscount">0</span>)</button><button id="nysmail">Open the email</button><button class="primary" id="nyssent">Mark as sent today</button></div>' +
+      (edit ? '<div class="row" style="flex-wrap:wrap;margin-top:12px"><button id="nysxlsx">Download the spreadsheet (<span id="nyscount">0</span>)</button><button id="nysgmail">Write the email in Gmail</button><button id="nysmail">Other mail app</button><button class="primary" id="nyssent">Mark as sent today</button></div>' +
         '<details style="margin-top:12px"><summary class="small">Your details for the DCJS email' + (d.contact ? '' : ' <span class="chip warn">fill in once</span>') + '</summary><div class="row2x" style="margin-top:8px">' +
         [['address', 'Camp address'], ['phone', 'Telephone'], ['fax', 'Fax'], ['contact', 'Contact person DCJS can call']].map(function (f) { return '<label class="field">' + f[1] + '<input type="text" data-dcjs="' + f[0] + '" value="' + esc(d[f[0]] || '') + '"></label>'; }).join('') +
         '</div><button id="dcjssave">Save</button></details>' : '') + '</div>';
@@ -1296,22 +1324,28 @@
       var waiting = people.filter(function (m) { return get(m, 'nys').status === 'sent'; });
       return '<div class="batch"><div class="row" style="justify-content:space-between;flex-wrap:wrap"><strong>Sent ' + esc(new Date(b.sent_on + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })) + ' · ' + people.length + ' ' + (people.length === 1 ? 'person' : 'people') + '</strong>' +
         (edit && waiting.length ? '<span class="row" style="gap:6px;align-items:center"><label class="small">DCJS replied on <input type="date" data-replydate="' + b.id + '" value="' + new Date().toISOString().slice(0, 10) + '" style="width:auto"></label><button class="primary" data-allclear="' + b.id + '">All ' + waiting.length + ' are clear</button></span>' : '<span class="chip ' + (waiting.length ? 'warn' : 'good') + '">' + (waiting.length ? waiting.length + ' waiting' : 'Done') + '</span>') + '</div>' +
+        '<div class="small" style="margin-top:6px">Results letter: ' + ((b.files || []).length ? fileLinks(b.files) : '<span class="muted">not uploaded</span>') + (edit ? ' <label class="linkish" style="cursor:pointer">' + ((b.files || []).length ? 'add another' : 'upload it') + '<input type="file" data-letter="' + b.id + '" accept="application/pdf,image/*" hidden></label>' : '') + '</div>' +
         '<div class="small" style="margin-top:6px">' + people.map(function (m) { var c = get(m, 'nys'); return '<span class="who">' + esc(m.first_name + ' ' + m.last_name) + ' <span class="muted">' + esc(checkText(c)) + '</span>' + (edit && c.status !== 'possible_match' ? ' <button class="linkish" data-match="' + c.id + '">possible match?</button>' : '') + (edit && c.status === 'possible_match' ? ' <button class="linkish" data-clearone="' + c.id + '">resolved: clear</button>' : '') + '</span>'; }).join(' · ') + '</div></div>';
     }).join('') : '<p class="muted" style="margin:0">Nothing sent yet this season.</p>') + '</div>';
     return html;
   }
   function nationalTab(staff, get, season, edit) {
     var rows = staff.slice().sort(function (a, b) { var ca = get(a, 'national'), cb = get(b, 'national'); return (ca ? 1 : 0) - (cb ? 1 : 0); });
-    var left = staff.filter(function (m) { return !get(m, 'national'); }).length;
-    return '<div class="card"><h2 style="margin-top:0">Search NSOPW name by name</h2><p class="small" style="margin-top:0">For each person: <strong>Copy name</strong>, <strong>Open NSOPW</strong> (it opens in its own tab; keep it open and search there), then record what it found. ' +
-      (left ? '<strong>' + left + ' left</strong> for ' + season + '.' : 'Everyone is done for ' + season + '.') + '</p>' +
+    var todo = rows.filter(function (m) { return !get(m, 'national'); });
+    if (!todo.some(function (m) { return m.id === S.natCurrent; })) S.natCurrent = todo[0] ? todo[0].id : null;
+    return '<div class="card"><h2 style="margin-top:0">Search NSOPW name by name</h2>' +
+      '<ol class="small" style="line-height:1.7;padding-left:20px;margin-top:0"><li><strong>Copy name</strong> for the highlighted person and search it on NSOPW (<strong>Open NSOPW</strong> keeps one tab for all your searches).</li>' +
+      '<li>Take a screenshot of the results <span class="muted">(Mac: Shift-Control-Command-4 · Windows: Windows-Shift-S; both copy it)</span>.</li>' +
+      '<li>Come back here and <strong>paste</strong> (Command-V or Ctrl-V). The screenshot is saved to that person as <strong>No match</strong>, and the next person is highlighted.</li></ol>' +
+      '<p class="small" style="margin-top:0">If the results show someone who could be this person, click <strong>Possible match</strong> instead (you can still paste the screenshot). On a phone, use <strong>Add picture</strong>. ' +
+      (todo.length ? '<strong>' + todo.length + ' left</strong> for ' + season + '.' : 'Everyone is done for ' + season + '.') + '</p>' +
       '<div class="scroll"><table class="grid"><thead><tr><th>Name</th><th>Date of birth</th><th>Lives in</th><th>' + season + '</th>' + (edit ? '<th></th>' : '') + '</tr></thead><tbody>' +
       rows.map(function (m) {
-        var c = get(m, 'national'), full = (m.first_name + ' ' + m.last_name).trim();
-        return '<tr' + (c && c.status === 'possible_match' ? ' class="pending"' : '') + '><td><a href="#staffroster/' + m.id + '">' + esc(m.last_name + ', ' + m.first_name) + '</a></td><td>' + esc(mdy(m.date_of_birth)) + '</td><td class="small">' + esc([m.city, m.state].filter(Boolean).join(', ')) + '</td>' +
-          '<td class="small">' + (c ? esc(checkText(c)) + (c.checked_by ? '<div class="muted">' + esc(c.checked_by) + '</div>' : '') + (c.note ? '<div class="muted">' + esc(c.note) + '</div>' : '') : '<span class="muted">Not checked</span>') + '</td>' +
-          (edit ? '<td><div class="row" style="flex-wrap:wrap;gap:6px">' + (!c ? '<button data-copy-name="' + esc(full) + '">Copy name</button><a class="btn" href="' + NSOPW + '" target="nsopw" rel="noopener">Open NSOPW</a><button class="primary" data-nat="' + m.id + '" data-res="clear">No match</button><button data-nat="' + m.id + '" data-res="possible_match">Possible match</button>'
-            : '<button data-natundo="' + c.id + '">Undo</button>' + (c.status === 'possible_match' ? '<button data-natclear="' + c.id + '">Resolved: clear</button>' : '')) + '</div></td>' : '') + '</tr>';
+        var c = get(m, 'national'), full = (m.first_name + ' ' + m.last_name).trim(), cur = edit && m.id === S.natCurrent;
+        return '<tr class="' + (cur ? 'natcur' : c && c.status === 'possible_match' ? 'pending' : '') + '" data-natrow="' + m.id + '"><td><a href="#staffroster/' + m.id + '">' + esc(m.last_name + ', ' + m.first_name) + '</a>' + (cur ? '<div class="small"><strong>Paste goes here</strong></div>' : '') + '</td><td>' + esc(mdy(m.date_of_birth)) + '</td><td class="small">' + esc([m.city, m.state].filter(Boolean).join(', ')) + '</td>' +
+          '<td class="small">' + (c ? esc(checkText(c)) + (c.checked_by ? '<div class="muted">' + esc(c.checked_by) + '</div>' : '') + (c.note ? '<div class="muted">' + esc(c.note) + '</div>' : '') + '<div>' + ((c.files || []).length ? fileLinks(c.files) : '<span class="muted">no screenshot</span>') + '</div>' : '<span class="muted">Not checked</span>') + '</td>' +
+          (edit ? '<td><div class="row" style="flex-wrap:wrap;gap:6px">' + (!c ? '<button data-copy-name="' + esc(full) + '" data-for="' + m.id + '">Copy name</button><a class="btn" href="' + NSOPW + '" target="nsopw" rel="noopener">Open NSOPW</a><label class="btn">Add picture<input type="file" data-natfile="' + m.id + '" accept="image/*,application/pdf" hidden></label><button data-nat="' + m.id + '" data-res="clear">No match, no picture</button><button data-nat="' + m.id + '" data-res="possible_match">Possible match</button>'
+            : '<label class="btn">Add picture<input type="file" data-natfile="' + m.id + '" accept="image/*,application/pdf" hidden></label><button data-natundo="' + c.id + '">Undo</button>' + (c.status === 'possible_match' ? '<button data-natclear="' + c.id + '">Resolved: clear</button>' : '')) + '</div></td>' : '') + '</tr>';
       }).join('') + '</tbody></table></div></div>';
   }
   function bindChecks(staff, get, data, season) {
@@ -1329,13 +1363,16 @@
       var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([window.XlsxWrite.make(rows, 'Registry search')], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
       a.download = fileName(); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); }, 30000);
     };
-    var mail = document.getElementById('nysmail');
-    if (mail) mail.onclick = function () {
+    var mail = document.getElementById('nysmail'), gmail = document.getElementById('nysgmail');
+    if (gmail) gmail.onclick = function () { compose(true); };
+    if (mail) mail.onclick = function () { compose(false); };
+    var compose = function (useGmail) {
       var d = (S.camp.settings || {}).dcjs || {}, n = picked().length;
       var body = 'Please search the attached list of ' + n + ' ' + (n === 1 ? 'person' : 'people') + ' against the NYS Sex Offender Registry (children\'s camp employees and volunteers).\n\n' +
         S.camp.name + '\n' + (d.address ? d.address + '\n' : '') + (d.phone ? 'Telephone: ' + d.phone + '\n' : '') + (d.fax ? 'Fax: ' + d.fax + '\n' : '') + (d.contact ? 'Contact person: ' + d.contact + '\n' : '') +
         '\nAttached: ' + fileName() + '\n\nThank you.';
-      location.href = 'mailto:SORSearch@dcjs.ny.gov?subject=' + encodeURIComponent('800 # Search') + '&body=' + encodeURIComponent(body);
+      if (useGmail) window.open('https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent('SORSearch@dcjs.ny.gov') + '&su=' + encodeURIComponent('800 # Search') + '&body=' + encodeURIComponent(body), '_blank', 'noopener');
+      else location.href = 'mailto:SORSearch@dcjs.ny.gov?subject=' + encodeURIComponent('800 # Search') + '&body=' + encodeURIComponent(body);
       if (!d.contact) toast('Tip: fill in your details for the DCJS email below once; DCJS needs an address, phone and contact person.');
     };
     var sent = document.getElementById('nyssent');
@@ -1361,7 +1398,32 @@
     var setOne = function (id, patch, msg) { DB.from('staff_checks').update(Object.assign({ checked_by: me }, patch)).eq('id', id).then(must).then(function () { again(msg); }).catch(fail); };
     [].forEach.call($main.querySelectorAll('[data-match]'), function (b) { b.onclick = function () { var n = prompt('Possible match. What did DCJS say? (kept with the check)'); if (n === null) return; setOne(b.dataset.match, { status: 'possible_match', note: n.trim() || null, checked_on: today }, 'Recorded as a possible match'); }; });
     [].forEach.call($main.querySelectorAll('[data-clearone],[data-natclear]'), function (b) { b.onclick = function () { var n = prompt('How was it resolved? (kept with the check)'); if (n === null) return; setOne(b.dataset.clearone || b.dataset.natclear, { status: 'clear', note: n.trim() || null, checked_on: today }, 'Recorded: clear'); }; });
-    [].forEach.call($main.querySelectorAll('[data-copy-name]'), function (b) { b.onclick = function () { navigator.clipboard.writeText(b.dataset.copyName).then(function () { toast('Copied: ' + b.dataset.copyName); }, function () { prompt('Copy this name:', b.dataset.copyName); }); }; });
+    bindRegFiles();
+    // The DCJS results letter, kept with the list it answers.
+    [].forEach.call($main.querySelectorAll('[data-letter]'), function (inp) {
+      inp.onchange = function () {
+        var f = inp.files[0], b = data.batches.find(function (x) { return x.id === inp.dataset.letter; }); if (!f) return;
+        storeRegistryFile(f, season, 'DCJS results letter').then(function (meta) { return DB.from('staff_check_batches').update({ files: (b.files || []).concat([meta]) }).eq('id', b.id).then(must); }).then(function () { again('Results letter saved'); }).catch(fail);
+      };
+    });
+    // A results picture for one person: saved to their national check (recorded as No match unless already decided).
+    var addPicture = function (staffId, file) {
+      var m = staff.find(function (x) { return x.id === staffId; }), c = get(m, 'national');
+      return storeRegistryFile(file, season, 'NSOPW ' + m.first_name + ' ' + m.last_name).then(function (meta) {
+        var row = { camp_id: S.camp.id, staff_member_id: m.id, kind: 'national', season: season, status: c ? c.status : 'clear', checked_on: c ? c.checked_on : today, checked_by: c ? c.checked_by : me, note: c ? c.note : null, files: ((c && c.files) || []).concat([meta]) };
+        return DB.from('staff_checks').upsert(row, { onConflict: 'staff_member_id,kind,season' }).then(must);
+      }).then(function () { again((c ? 'Picture added for ' : 'Saved, no match: ') + m.first_name + ' ' + m.last_name); });
+    };
+    [].forEach.call($main.querySelectorAll('[data-natfile]'), function (inp) { inp.onchange = function () { if (inp.files[0]) addPicture(inp.dataset.natfile, inp.files[0]).catch(fail); }; });
+    [].forEach.call($main.querySelectorAll('[data-natrow]'), function (tr) { tr.addEventListener('click', function (e) { if (e.target.closest('a,label,input') || get(staff.find(function (x) { return x.id === tr.dataset.natrow; }), 'national')) return; if (S.natCurrent !== tr.dataset.natrow && !e.target.closest('button')) { S.natCurrent = tr.dataset.natrow; checksPage(); } }); });
+    S.onPasteImage = (S.checkTab === 'national' && can('registry_checks', 'change')) ? function (file) {
+      if (!S.natCurrent) return toast('Everyone is checked. To add a picture to someone, use Add picture on their row.');
+      if (S.pasting) return; S.pasting = true;
+      addPicture(S.natCurrent, file).catch(fail).then(function () { S.pasting = false; });
+    } : null;
+    [].forEach.call($main.querySelectorAll('[data-copy-name]'), function (b) { b.onclick = function () {
+      var mark = function () { if (S.natCurrent !== b.dataset.for) { S.natCurrent = b.dataset.for; [].forEach.call($main.querySelectorAll('tr.natcur'), function (x) { x.classList.remove('natcur'); }); b.closest('tr').classList.add('natcur'); } };
+      navigator.clipboard.writeText(b.dataset.copyName).then(function () { mark(); toast('Copied: ' + b.dataset.copyName + '. Pasting a screenshot saves it to this person.'); }, function () { mark(); prompt('Copy this name:', b.dataset.copyName); }); }; });
     [].forEach.call($main.querySelectorAll('[data-nat]'), function (b) {
       b.onclick = function () {
         var note = null;

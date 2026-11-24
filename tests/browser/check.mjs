@@ -603,8 +603,26 @@ await demo.locator('[data-allclear]').first().click(); await demo.waitForTimeout
 await demo.screenshot({ path: path.join(out, 'demo-checks-nys.png'), fullPage: true });
 await demo.locator('[data-ctab="national"]').click(); await demo.waitForTimeout(400);
 const before = await demo.locator('[data-ctab="national"]').innerText();
+// Paste a screenshot: saved to the highlighted person as No match, and the next person is highlighted.
+const curName = await demo.locator('tr.natcur td').first().innerText();
+await demo.evaluate(() => {
+  const dt = new DataTransfer(); dt.items.add(new File([new Uint8Array([137, 80, 78, 71])], 'shot.png', { type: 'image/png' }));
+  document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true }));
+});
+await demo.waitForTimeout(600);
+if (before === await demo.locator('[data-ctab="national"]').innerText()) errors.push('pasted NSOPW screenshot not recorded');
+if (curName === await demo.locator('tr.natcur td').first().innerText()) errors.push('next person not highlighted after paste');
+if (!(await demo.locator('[data-regfile]').count())) errors.push('no saved record link after paste');
 await demo.locator('[data-nat][data-res="clear"]').first().click(); await demo.waitForTimeout(400);
-if (before === await demo.locator('[data-ctab="national"]').innerText()) errors.push('NSOPW result not recorded');
+// DCJS letter upload and the Gmail link.
+await demo.locator('[data-ctab="nys"]').click(); await demo.waitForTimeout(400);
+await demo.locator('[data-letter]').first().setInputFiles({ name: 'letter.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4') }); await demo.waitForTimeout(500);
+if (!/Results letter: View record/.test(await demo.locator('.batch').first().innerText())) errors.push('DCJS letter not saved');
+await demo.evaluate(() => { window.__opened = []; window.open = u => { window.__opened.push(u); return null; }; });
+await demo.locator('#nysgmail').click(); await demo.waitForTimeout(200);
+const gmUrl = (await demo.evaluate(() => window.__opened))[0] || '';
+if (!/^https:\/\/mail\.google\.com\/mail\/\?view=cm&fs=1&to=SORSearch%40dcjs\.ny\.gov&su=800%20%23%20Search&body=Please%20search/.test(gmUrl)) errors.push('Gmail link wrong: ' + gmUrl.slice(0, 140));
+await demo.locator('[data-ctab="national"]').click(); await demo.waitForTimeout(400);
 if (!(await demo.locator('a[href="https://www.nsopw.gov/search-public-sex-offender-registries"]').count())) errors.push('no NSOPW link');
 await demo.screenshot({ path: path.join(out, 'demo-checks-national.png'), fullPage: true });
 await demo.goto('http://app.test/#staffroster'); await demo.waitForTimeout(500);

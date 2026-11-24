@@ -792,7 +792,15 @@ do $$ declare b uuid; begin
 end $$;
 reset role;
 do $$ begin perform pg_temp.as_user('fin@x.org'); end $$;
-do $$ begin assert (select count(*) from staff_checks) = 0, 'finance does not see checks by default'; end $$;
+do $$ begin assert (select count(*) from staff_checks) = 0, 'finance does not see checks by default'; 
+  assert not registry_file_ok('00000000-0000-0000-0000-0000000000c1/2027/x.png', 'see'), 'nor their files'; end $$;
+reset role;
+do $$ begin perform pg_temp.as_user('office@x.org'); end $$;
+do $$ begin
+  assert registry_file_ok('00000000-0000-0000-0000-0000000000c1/2027/x.png', 'change'), 'office may store results';
+  assert not registry_file_ok('00000000-0000-0000-0000-0000000000c2/2027/x.png', 'see'), 'not another camp''s';
+  assert not registry_file_ok('junk/x.png', 'see');
+end $$;
 rollback;
 
 \echo 'ALL DATABASE TESTS PASSED'
