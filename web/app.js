@@ -539,14 +539,18 @@
       '<details class="msel" style="margin-left:auto"><summary>Columns</summary><div class="msel-box">' +
       ALL.filter(function (c) { return anyVal(c[0]) || cols.indexOf(c) >= 0; }).map(function (c) { return '<label class="check" style="margin:4px 0"><input type="checkbox" data-col="' + c[0] + '"' + (cols.indexOf(c) >= 0 ? ' checked' : '') + '><span>' + esc(c[1]) + '</span></label>'; }).join('') +
       '<button id="rcolreset" class="small" style="margin-top:6px">Reset columns</button></div></details></div>';
-    html += '<p class="small muted">' + rows.length + ' of ' + all.length + ' campers · click a column heading to sort</p>';
+    var unapproved = function (r) { return r.approval_status && !/^approved$/i.test(r.approval_status); };
+    var nPend = rows.filter(unapproved).length;
+    html += '<p class="small muted">' + rows.length + ' of ' + all.length + ' campers · click a column heading to sort' +
+      (nPend ? ' · <span class="pendkey"></span> ' + nPend + ' not approved yet in Camp Flow' : '') + '</p>';
     html += '<div class="wrap"><table class="grid"><thead><tr>' + cols.map(function (c) {
       var on = c[0] === R.sort;
       return '<th aria-sort="' + (on ? (R.dir > 0 ? 'ascending' : 'descending') : 'none') + '"><button class="sortbtn" data-sort="' + c[0] + '">' + esc(c[1]) + (on ? (R.dir > 0 ? ' ▲' : ' ▼') : '') + '</button></th>';
     }).join('') + '</tr></thead><tbody>';
     var canOpen = can('roster');
     rows.forEach(function (r) {
-      html += '<tr' + (canOpen ? ' class="click" data-id="' + r.id + '" tabindex="0"' : '') + '>' + cols.map(function (c) {
+      var cls = [canOpen ? 'click' : '', unapproved(r) ? 'pending' : ''].filter(Boolean).join(' ');
+      html += '<tr' + (cls ? ' class="' + cls + '"' : '') + (canOpen ? ' data-id="' + r.id + '" tabindex="0"' : '') + (unapproved(r) ? ' title="' + esc(r.approval_status) + ' in Camp Flow"' : '') + '>' + cols.map(function (c) {
         var v = c[2](r);
         if (c[0] === 'alert' && v) return '<td><strong style="color:var(--bad-ink)">' + esc(v) + '</strong></td>';
         if ((c[0] === 'fphone' || c[0] === 'mphone') && v) return '<td style="white-space:nowrap"><a href="tel:' + esc(String(v).replace(/[^\d+]/g, '')) + '">' + esc(v) + '</a></td>';
@@ -1587,10 +1591,18 @@
   function reportTable(data) {
     var cols = reportCols((S.camp.settings || {}).report_columns), rows = [];
     (data.list || []).forEach(function (f) { (f.campers || []).forEach(function (c) { rows.push({ c: c, f: f }); }); });
-    var head = +data.campers ? data.campers + ' new camper' + (+data.campers === 1 ? '' : 's') + ' from ' + data.families + ' famil' + (+data.families === 1 ? 'y' : 'ies') + ' (' + data.new_families + ' new to camp)' : 'No new registrations';
+    var pend = rows.filter(function (r) { return r.c.approval_status && !/^approved$/i.test(r.c.approval_status); }).length;
+    var head = +data.campers ? data.campers + ' new camper' + (+data.campers === 1 ? '' : 's') + ' from ' + data.families + ' famil' + (+data.families === 1 ? 'y' : 'ies') + ' (' + data.new_families + ' new to camp)' + (pend ? ', ' + pend + ' not approved yet' : '') : 'No new registrations';
     return '<p><strong>' + head + '</strong> <span class="muted">· ' + esc(when(data.from)) + ' to ' + esc(when(data.to)) + '</span></p>' +
       (rows.length ? '<div class="scroll"><table class="grid"><thead><tr>' + cols.map(function (c) { return '<th>' + esc(c.label) + '</th>'; }).join('') + '</tr></thead><tbody>' +
-        rows.map(function (r) { return '<tr>' + cols.map(function (c) { var v = c.get(r.c, r.f, data); return '<td>' + (['name', 'first', 'last'].indexOf(c.key) >= 0 && r.c.id ? '<a href="#camper/' + esc(r.c.id) + '">' + esc(v) + '</a>' : esc(v)) + '</td>'; }).join('') + '</tr>'; }).join('') +
+        rows.map(function (r) {
+          var p = r.c.approval_status && !/^approved$/i.test(r.c.approval_status), named = false;
+          return '<tr' + (p ? ' class="pending"' : '') + '>' + cols.map(function (c) {
+            var v = c.get(r.c, r.f, data), isName = ['name', 'first', 'last'].indexOf(c.key) >= 0, note = isName && p && !named ? ' <span class="small muted">(not approved yet)</span>' : '';
+            if (isName) named = true;
+            return '<td>' + (isName && r.c.id ? '<a href="#camper/' + esc(r.c.id) + '">' + esc(v) + '</a>' : esc(v)) + note + '</td>';
+          }).join('') + '</tr>';
+        }).join('') +
         '</tbody></table></div>' : '');
   }
   function reportsPage(id) {

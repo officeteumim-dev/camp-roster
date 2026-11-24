@@ -421,6 +421,8 @@ await demo.screenshot({ path: path.join(out, 'demo-settings-closed.png'), fullPa
   await demo.locator('.card', { hasText: 'Camp Flow registrations are for' }).screenshot({ path: path.join(out, 'demo-divisions.png') });
   await demo.goto('http://app.test/#roster'); await demo.waitForTimeout(600);
   if (!(await demo.locator('text=Approval status').count())) errors.push('no Approval status roster column');
+  if (!(await demo.locator('tr.pending').count()) || !/not approved yet in Camp Flow/.test(await demo.locator('main').innerText())) errors.push('unapproved campers not shaded');
+  await demo.locator('.wrap').screenshot({ path: path.join(out, 'demo-roster-pending.png') });
   const rt = await demo.locator('main').innerText();
   if (!/Division/i.test(rt) || !/Juniors/.test(rt) || !/Seniors/.test(rt)) errors.push('roster has no divisions');
   await demo.goto('http://app.test/#settings'); await demo.waitForTimeout(400);

@@ -153,3 +153,9 @@ button.danger { color: var(--bad); border-color: var(--bad); }
 .divlims summary { cursor: pointer; color: var(--muted); }
 .divlimgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; margin-top: 6px; }
 .divlimgrid label { display: grid; gap: 2px; }
+
+/* Not approved yet in Camp Flow: a very light shade */
+tr.pending > td { background: #fbf6e9; }
+tr.pending:hover > td { background: #f7efd9; }
+.pendkey { display: inline-block; width: 12px; height: 12px; border-radius: 3px; background: #fbf6e9; border: 1px solid #e8dcbc; vertical-align: -1px; }
+@media print { tr.pending > td { background: #fbf6e9 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; } }

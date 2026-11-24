@@ -70,3 +70,13 @@ test('every Roster column can be a report column', async () => {
   assert.deepEqual(roster.filter(l => !report.includes(l)), []);
   assert.deepEqual(reportColumns(['grade']).map(c => c.key), ['name', 'grade'], 'a report always says who');
 });
+
+test('campers not approved yet are counted and noted', () => {
+  const data = { from: '2026-11-23T13:00:00Z', to: '2026-11-24T13:00:00Z', campers: 2, families: 1, new_families: 1, list: [
+    { last_name: 'Levi', parents: 'Moshe', new_family: true, campers: [{ name: 'Dovi Levi', approval_status: 'Pending' }, { name: 'Avi Levi', approval_status: 'Approved' }] }] };
+  const e = buildReportEmail({ name: 'Camp' }, data, 'https://x', 'America/New_York', reportColumns(['name', 'grade']));
+  assert.match(e.text, /2 new campers from 1 family \(1 new to camp\), 1 not approved yet\./);
+  assert.match(e.text, /- Dovi Levi \(not approved yet\)/);
+  assert.doesNotMatch(e.text, /Avi Levi \(not approved/);
+  assert.match(e.html, /<tr style="background:#fbf6e9"><td[^>]*><strong>Dovi Levi<\/strong> <span[^>]*>\(not approved yet\)/);
+});

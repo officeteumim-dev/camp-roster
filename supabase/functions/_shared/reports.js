@@ -121,15 +121,19 @@ export function reportColumns(chosen, customLabels = {}) {
 export function buildReportEmail(camp, data, appUrl, tz = 'America/New_York', columns = reportColumns(null)) {
   const n = +data.campers, period = `${when(data.from, tz)} to ${when(data.to, tz)}`;
   const subject = `${camp.name}: ${n ? `${n} new camper${n === 1 ? '' : 's'}` : 'no new registrations'} (${new Date(data.to).toLocaleDateString('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric' })})`;
-  const head = n ? `${n} new camper${n === 1 ? '' : 's'} from ${data.families} famil${+data.families === 1 ? 'y' : 'ies'} (${data.new_families} new to camp).` : 'No new registrations.';
+  // Campers not approved yet in Camp Flow are counted, and noted.
+  const notApproved = c => c.approval_status && !/^approved$/i.test(c.approval_status);
+  const pend = data.list.reduce((t, f) => t + f.campers.filter(notApproved).length, 0);
+  const head = n ? `${n} new camper${n === 1 ? '' : 's'} from ${data.families} famil${+data.families === 1 ? 'y' : 'ies'} (${data.new_families} new to camp)${pend ? `, ${pend} not approved yet` : ''}.` : 'No new registrations.';
   const rows = [];
-  for (const f of data.list) for (const c of f.campers) rows.push(columns.map(col => String(col.get(c, f, tz, data) ?? '')));
-  const text = `Daily registration report\n${period}\n\n${head}\n\n` + rows.map(r => '- ' + r.filter(Boolean).join(', ')).join('\n') + `\n\nAll reports: ${appUrl}/#reports\n`;
+  const pending = [];
+  for (const f of data.list) for (const c of f.campers) { rows.push(columns.map(col => String(col.get(c, f, tz, data) ?? ''))); pending.push(!!notApproved(c)); }
+  const text = `Daily registration report\n${period}\n\n${head}\n\n` + rows.map((r, n) => '- ' + r.filter(Boolean).join(', ') + (pending[n] ? ' (not approved yet)' : '')).join('\n') + `\n\nAll reports: ${appUrl}/#reports\n`;
   const th = 'text-align:left;padding:6px 10px 6px 0;border-bottom:1px solid #c9c6bd;font-size:13px;color:#66645e;font-weight:600';
   const td = 'padding:6px 10px 6px 0;border-bottom:1px solid #e4e2dc;vertical-align:top';
   const html = `<div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;line-height:1.5;color:#1d1d1b;max-width:900px">
 <p style="margin:0;color:#66645e">${esc(camp.name)} · daily registration report</p><h2 style="margin:4px 0 2px">${esc(head)}</h2><p style="margin:0 0 14px;color:#66645e">${esc(period)}</p>
-${rows.length ? `<table style="border-collapse:collapse;width:100%"><tr>${columns.map(c => `<th style="${th}">${esc(c.label)}</th>`).join('')}</tr>${rows.map(r => `<tr>${r.map((v, i) => `<td style="${td}">${['name', 'first', 'last'].includes(columns[i].key) ? `<strong>${esc(v)}</strong>` : esc(v)}</td>`).join('')}</tr>`).join('')}</table>` : ''}
+${rows.length ? `<table style="border-collapse:collapse;width:100%"><tr>${columns.map(c => `<th style="${th}">${esc(c.label)}</th>`).join('')}</tr>${rows.map((r, n) => { let named = false; return `<tr${pending[n] ? ' style="background:#fbf6e9"' : ''}>${r.map((v, i) => { const isName = ['name', 'first', 'last'].includes(columns[i].key), note = isName && pending[n] && !named ? ' <span style="color:#66645e;font-size:12px">(not approved yet)</span>' : ''; if (isName) named = true; return `<td style="${td}">${isName ? `<strong>${esc(v)}</strong>` : esc(v)}${note}</td>`; }).join('')}</tr>`; }).join('')}</table>` : ''}
 <p style="margin-top:18px"><a href="${esc(appUrl)}/#reports" style="color:#1f5fae">All reports in the roster app</a></p></div>`;
   return { subject, text, html };
 }
