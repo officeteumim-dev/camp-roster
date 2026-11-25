@@ -234,7 +234,7 @@ await so.context().close();
   await fill('campers.0.first', 'Shimon'); await fill('campers.0.dob', '2015-05-12');
   await reg.locator('[data-k="campers.0.grade"]').selectOption('5th'); await reg.locator('[data-k="campers.0.gender"]').selectOption('Male');
   await reg.locator('[data-sessions="0"] input[value="s1"]').check();
-  await reg.locator('#agree').check(); await reg.locator('#sig').fill('Yaakov Goldberg');
+  await reg.locator('[data-consent]').evaluateAll(a => a.forEach(c => { if (!c.checked) c.click(); })); await reg.locator('#agree').check(); await reg.locator('#sig').fill('Yaakov Goldberg');
   await reg.locator('#sendapp').click(); await reg.waitForTimeout(200);
   const still = await reg.locator('.formerr').innerText().catch(() => '');
   if (!/t-shirt size/.test(still) || !/payment plan/.test(still) || /zip/i.test(still)) errors.push('custom required question / plan not checked: ' + still);
@@ -247,12 +247,13 @@ await so.context().close();
   await reg.locator('[data-k="campers.1.grade"]').selectOption('3rd'); await reg.locator('[data-k="campers.1.gender"]').selectOption('Male');
   await reg.locator('[data-sessions="1"] input[value="s2"]').check();
   await reg.locator('[data-k="campers.1.custom.shirt1"]').selectOption('S');
-  await reg.locator('#agree').check(); await reg.locator('#sig').fill('Yaakov Goldberg');
+  await reg.locator('[data-consent]').evaluateAll(a => a.forEach(c => { if (!c.checked) c.click(); })); await reg.locator('#agree').check(); await reg.locator('#sig').fill('Yaakov Goldberg');
   await reg.screenshot({ path: path.join(out, 'register-form.png'), fullPage: true });
   await reg.locator('#sendapp').click(); await reg.waitForTimeout(600);
   const w = await reg.evaluate(() => window.FAKE.writes.filter(x => x.table === 'applications'));
   const last = w.filter(x => x.value && x.value.data).pop();
   if (!last || last.value.data.campers[0].custom.shirt1 !== 'M' || last.value.data.campers[0].custom.swim01[0] !== 'Swim' || last.value.data.custom.shul01 !== 'Agudah' || last.value.data.payment_plan_name !== 'Pay in full') errors.push('answers not saved: ' + JSON.stringify(last && last.value.data));
+  { const c = last && (last.value.data.consents || [])[0]; if (!c || c.id !== 'assumption_of_risk' || !c.agreed) errors.push('assumption of risk not recorded'); }
   if (!last || last.value.data.campers.length !== 2 || last.value.data.campers[1].sessions[0] !== 's2' || last.value.data.father.first !== 'Yaakov' || last.value.signature !== 'Yaakov Goldberg') errors.push('application not saved right: ' + JSON.stringify(last && last.value));
   if (!w.some(x => x.op === 'update' && x.value.status === 'submitted')) errors.push('application not sent');
   if (!/We received your application/.test(await reg.locator('main').innerText())) errors.push('no confirmation after sending');
@@ -316,9 +317,11 @@ await so.context().close();
   await f('father.first', 'Shmuel'); await f('father.phone', '732-555-0301');
   await f('emergency.0.name', 'Dina Stein'); await f('emergency.0.phone', '732-555-0302');
   await f('camper_experience.0.camp', 'Camp A'); await f('camper_experience.0.years', '2018-2022');
-  await t.locator('#agree').check(); await t.locator('#sig').fill('Avi Stein');
+  await t.locator('[data-consent]').evaluateAll(a => a.forEach(c => { if (!c.checked) c.click(); })); await t.locator('#agree').check(); await t.locator('#sig').fill('Avi Stein');
   await t.locator('#sendapp').click(); await t.waitForTimeout(300);
   if (!/camps you worked at/.test(await t.locator('.formerr').innerText().catch(() => ''))) errors.push('staff experience not required');
+  if (!/parent or guardian's name under "Consent to pre-employment background check"/.test(await t.locator('.formerr').innerText().catch(() => ''))) errors.push('guardian not required for a minor: ' + await t.locator('.formerr').innerText().catch(() => ''));
+  await t.locator('[data-guardian="background_check"]').fill('Shmuel Stein');
   if (!/your tax form \(W-4 or W-9\)/.test(await t.locator('.formerr').innerText().catch(() => ''))) errors.push('tax form not required');
   await t.locator('[data-none="no_staff_experience"]').check();
   // The W-9 questionnaire: checks, then fills in and signs the IRS form here; the SSN must not be saved anywhere but the PDF.
@@ -341,6 +344,7 @@ await so.context().close();
   if (!sl || sl.value.data.positions[0] !== 'Lifeguard' || sl.value.data.camper_experience[0].camp !== 'Camp A' || !sl.value.data.no_staff_experience || sl.value.data.sessions[0] !== 's1' || sl.value.kind !== undefined && sl.value.kind !== 'staff') errors.push('staff application not saved right: ' + JSON.stringify(sl && sl.value));
   if (!sw.some(x => x.op === 'insert' && x.value.kind === 'staff')) errors.push('not saved as a staff application');
   if (!sl || !sl.value.data.tax_form || sl.value.data.tax_form.type !== 'W-9') errors.push('tax form not recorded on the application');
+  { const c = sl && (sl.value.data.consents || [])[0]; if (!c || c.id !== 'background_check' || !c.agreed || c.guardian !== 'Shmuel Stein' || !/Sex Offender Registry/.test(c.text)) errors.push('background check consent not recorded: ' + JSON.stringify(c).slice(0, 200)); }
   if (!/We received your application/.test(await t.locator('main').innerText())) errors.push('no staff confirmation');
   await t.context().close();
 }

@@ -691,6 +691,11 @@
         Object.assign(ap, { status: 'accepted', staff_member_id: m.id, decided_by: email || 'you', decided_at: now });
         save(); return m.id;
       },
+      set_registration_consents: function (a) {
+        if (!canAny('applications', 'change')) notAllowed();
+        var v = (a.p_consents || []).filter(function (c) { return c.title && c.text; });
+        var c = db.camps[0]; c.settings = Object.assign({}, c.settings); c.settings.registration_consents = Object.assign({}, c.settings.registration_consents); c.settings.registration_consents[a.p_kind] = v; save(); return v;
+      },
       set_tax_setting: function (a) {
         if (!canAny('applications', 'change')) notAllowed();
         var c = db.camps[0]; c.settings = Object.assign({}, c.settings); c.settings.registration = Object.assign({}, c.settings.registration);

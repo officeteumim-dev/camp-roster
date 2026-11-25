@@ -49,6 +49,8 @@
       if (r.error) throw r.error;
       if (!r.data) return show('<h1>Camp not found</h1><p>Check the link you were given.</p>');
       S.info = r.data;
+      sb.rpc('registration_consents', { p_slug: slug, p_kind: KIND }).then(function (c) { S.info.consents = window.RegForm.consents(c && !c.error ? c.data : null, KIND, S.info.name); }, function () { });
+      S.info.consents = window.RegForm.consents(null, KIND, S.info.name);
       if (SESSION) {
         var only = S.info.sessions.find(function (x) { return slugOf(x.name) === SESSION || x.id === SESSION; });
         // A session that isn't offered online (or a mistyped link) is closed.
@@ -144,6 +146,30 @@
   function bindOut() {
     var o = document.getElementById('out');
     if (o) o.onclick = function (e) { e.preventDefault(); sb.auth.signOut().then(function () { S.user = null; S.app = null; start(); }); };
+  }
+
+  // ---------- Consents: each one read and agreed to on its own ----------
+  function under18(dob) { var a = window.RegForm.ageOn(dob, null); return a != null && a < 18; }
+  function consentSections(d) {
+    var had = {}; ((d && d.consents) || []).forEach(function (c) { had[c.id] = c; });
+    return (S.info.consents || []).map(function (c) {
+      var h = had[c.id] || {};
+      return '<fieldset class="sec" data-consentbox="' + esc(c.id) + '"><legend>' + esc(c.title) + '</legend><div class="consent-text agree">' + esc(c.text) + '</div>' +
+        '<label class="check" style="margin-top:12px"><input type="checkbox" data-consent="' + esc(c.id) + '"' + (h.agreed ? ' checked' : '') + '><span>I have read this and I agree.</span></label>' +
+        (STAFF ? '<label class="field">Parent or guardian\'s full name <span class="small muted">(needed if you\'re under 18: they type their name to agree too)</span><input type="text" data-guardian="' + esc(c.id) + '" value="' + esc(h.guardian || '') + '" maxlength="120"></label>' : '') + '</fieldset>';
+    }).join('');
+  }
+  function collectConsents() {
+    return (S.info.consents || []).map(function (c) {
+      var box = $app.querySelector('[data-consent="' + c.id + '"]'), g = $app.querySelector('[data-guardian="' + c.id + '"]');
+      return { id: c.id, title: c.title, text: c.text, agreed: !!(box && box.checked), at: new Date().toISOString(), guardian: g && g.value.trim() || undefined };
+    });
+  }
+  function consentProblems(d, out) {
+    (d.consents || []).forEach(function (c) {
+      if (!c.agreed) out.push('your agreement to "' + c.title + '"');
+      else if (STAFF && under18(d.dob) && !c.guardian) { out.push('a parent or guardian\'s name under "' + c.title + '" (you\'re under 18)'); var g = $app.querySelector('[data-guardian="' + c.id + '"]'); if (g) g.classList.add('bad-field'); }
+    });
   }
 
   // ---------- The application (questions as the camp set them up: web/reg-form.js) ----------
@@ -253,6 +279,7 @@
       (pl.length ? '<fieldset class="sec"><legend>Payment plan</legend><div class="sessions" data-plan>' + pl.map(function (p) {
         return '<label class="check" style="align-items:flex-start"><input type="radio" name="plan" value="' + esc(p.id) + '"' + (d.payment_plan === p.id ? ' checked' : '') + '><span><strong>' + esc(p.name) + '</strong>' + (p.description ? '<span class="small muted" style="display:block;font-weight:400;white-space:pre-line">' + esc(p.description) + '</span>' : '') + '</span></label>';
       }).join('') + '</div></fieldset>' : '') +
+      consentSections(d) +
       '<fieldset class="sec"><legend>Agreement</legend>' + (i.agreement ? '<div class="consent-text agree">' + esc(i.agreement) + '</div>' : '') +
       '<label class="check" style="margin-top:12px"><input type="checkbox" id="agree"><span>' + (i.agreement ? 'I have read and agree to the above.' : 'The information in this application is correct.') + '</span></label>' +
       '<label class="field">Type your full name to sign<input type="text" id="sig" maxlength="200" autocomplete="name" value="' + esc((S.app && S.app.signature) || '') + '"></label></fieldset>' +
@@ -301,6 +328,7 @@
       delete d.campers;
     } else d.campers = d.campers.filter(Boolean);
     d.emergency = d.emergency.filter(Boolean);
+    d.consents = collectConsents();
     if (S.info.sessionName) { d.applied_for = S.info.sessions[0].id; d.applied_for_name = S.info.sessionName; }
     return d;
   }
@@ -335,6 +363,7 @@
     [].forEach.call($app.querySelectorAll('[data-multireq]'), function (box) {
       if (!box.querySelector('input:checked')) { var kidEl = box.closest('.kid'); out.push((kidEl ? 'camper ' + (+kidEl.dataset.kid + 1) + '\'s ' : '') + box.dataset.multireq.toLowerCase()); }
     });
+    consentProblems(d, out);
     if (STAFF) return out.concat(staffProblems(d, mark));
     // At least one parent with every parent question the camp requires.
     var need = ['first', 'email'].concat(F('parent.phone').mode === 'required' ? ['phone'] : []);
@@ -555,6 +584,7 @@
       customs('experience', 'custom.', d.custom) + '</fieldset>' +
       (i.tax_form && i.tax_form !== 'none' && i.tax_when !== 'hired' ? taxSection(d) : '') +
       ((asks('notes') || window.RegForm.custom(i.form, 'other').length) ? '<fieldset class="sec"><legend>Anything else?</legend>' + (asks('notes') ? '<label class="field">' + esc(F('notes').label) + (F('notes').mode === 'optional' ? ' <span class="small muted">(optional)</span>' : '') + '<textarea data-k="notes" maxlength="2000" rows="3"' + (F('notes').mode === 'required' ? ' data-req' : '') + '>' + esc(d.notes || '') + '</textarea></label>' : '') + customs('other', 'custom.', d.custom) + '</fieldset>' : '') +
+      consentSections(d) +
       '<fieldset class="sec"><legend>Agreement</legend>' + (i.agreement ? '<div class="consent-text agree">' + esc(i.agreement) + '</div>' : '') +
       '<label class="check" style="margin-top:12px"><input type="checkbox" id="agree"><span>' + (i.agreement ? 'I have read and agree to the above.' : 'The information in this application is correct.') + '</span></label>' +
       '<label class="field">Type your full name to sign<input type="text" id="sig" maxlength="200" autocomplete="name" value="' + esc((S.app && S.app.signature) || '') + '"></label></fieldset>' +

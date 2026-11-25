@@ -1514,6 +1514,7 @@
             if (q.section === 'camper') { var vals = (d.campers || []).map(function (k) { var v = show((k.custom || {})[q.id]); return v ? esc(k.first) + ': ' + esc(v) : ''; }).filter(Boolean); return row(q.label, vals.join('<br>')); }
             return row(q.label, esc(show((d.custom || {})[q.id]) || ''));
           }).join('') +
+          row('Consents', (d.consents || []).filter(function (c) { return c.agreed; }).map(function (c) { return '<div>' + esc(c.title) + ' <span class="small muted">· agreed ' + esc(when(c.at)) + (c.guardian ? ' · parent/guardian: ' + esc(c.guardian) : '') + '</span></div>'; }).join('')) +
           row('Payment plan', esc(d.payment_plan_name || '')) + '</table></div>';
         // A camper who doesn't fit their division (by grade or age) gets a warning; the office decides.
         var misfit = [];
@@ -1590,6 +1591,7 @@
         row('Emergency contact', (d.emergency || []).filter(function (e) { return e && e.name; }).map(function (e) { return esc([e.name, e.relation, e.phone].filter(Boolean).join(', ')); }).join('<br>')) +
         row('As a camper', exp(d.camper_experience, ['camp', 'years'])) + row('On staff', exp(d.staff_experience, ['camp', 'position', 'years'])) +
         qs.map(function (q) { var v = (d.custom || {})[q.id]; return row(q.label, esc(Array.isArray(v) ? v.join(', ') : (v || ''))); }).join('') +
+        row('Consents', (d.consents || []).filter(function (c) { return c.agreed; }).map(function (c) { return '<div>' + esc(c.title) + ' <span class="small muted">· agreed ' + esc(when(c.at)) + (c.guardian ? ' · parent/guardian: ' + esc(c.guardian) : '') + '</span></div>'; }).join('')) +
         row('Notes', d.notes ? '<span style="white-space:pre-line">' + esc(d.notes) + '</span>' : '') +
         ((((S.camp.settings || {}).registration || {}).staff || {}).tax_form && S.camp.settings.registration.staff.tax_form !== 'none' || d.tax_form ? taxRow(d.tax_form, row) : '') + '</table></div>';
       if (edit && open) {
@@ -1624,6 +1626,8 @@
     var RF = window.RegForm, staff = kind === 'staff';
     var W = JSON.parse(JSON.stringify(((S.camp.settings || {}).registration || {})[kind] || {}));
     if (staff && !W.positions) W.positions = RF.POSITIONS.slice();
+    var savedC = ((S.camp.settings || {}).registration_consents || {})[kind];
+    var C = JSON.parse(JSON.stringify(Array.isArray(savedC) ? savedC : RF.defaultConsents(kind, S.camp.name)));
     W.form = W.form || {}; W.form.builtin = W.form.builtin || {}; W.form.custom = W.form.custom || [];
     W.payment = W.payment || {}; W.payment.plans = W.payment.plans || [];
     var typeSel = function (t) { return RF.TYPES.map(function (x) { return '<option value="' + x[0] + '"' + (t === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join(''); };
@@ -1671,6 +1675,9 @@
         (staff ? '<div class="card"><h2 style="margin-top:0">Tax form</h2><p class="small muted">Applicants download the IRS form, fill it in and upload it. It holds their Social Security number, so only directors and roles you allow under "Staff tax forms" in Who can see what can open it (finance can by default). Declining an application deletes its form.</p>' +
           '<div class="row" style="gap:14px;flex-wrap:wrap"><label class="field">Ask for<select id="r_tax">' + [['none', 'No tax form'], ['w4', 'W-4 (employees)'], ['w9', 'W-9 (independent contractors)'], ['choice', 'W-4 or W-9: the applicant chooses']].map(function (o) { return '<option value="' + o[0] + '"' + ((W.tax_form || 'none') === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
           '<label class="field">When<select id="r_taxwhen"><option value="apply"' + (W.tax_when !== 'hired' ? ' selected' : '') + '>With the application</option><option value="hired"' + (W.tax_when === 'hired' ? ' selected' : '') + '>After they\'re hired</option></select></label></div></div>' : '') +
+        '<div class="card"><h2 style="margin-top:0">Consents</h2><p class="small muted">Each consent is shown on its own and must be ticked before the application can be sent' + (staff ? '; applicants under 18 also need a parent or guardian\'s name' : '') + '. The wording that was agreed to is saved with each application. This is starting wording: have your attorney review it.</p><div id="consents">' +
+        C.map(function (c) { return '<div class="cbox" data-cid="' + esc(c.id) + '"><div class="row" style="gap:8px;flex-wrap:wrap"><input type="text" data-c="title" value="' + esc(c.title) + '" placeholder="Title" maxlength="160" style="flex:1;min-width:220px"><label class="check" style="margin:0"><input type="checkbox" data-c="enabled"' + (c.enabled === false ? '' : ' checked') + '><span>Ask for it</span></label><button type="button" data-cdel>Remove</button></div><textarea data-c="text" rows="8" maxlength="20000">' + esc(c.text) + '</textarea></div>'; }).join('') +
+        '</div><p><button type="button" id="addconsent">+ Add a consent</button></p></div>' +
         '<div class="card"><h2 style="margin-top:0">Wording</h2><label class="field">Welcome text <span class="small muted">(shown at the top of the application)</span><textarea id="r_intro" rows="3" maxlength="4000">' + esc(W.intro || '') + '</textarea></label>' +
         '<label class="field">' + (staff ? 'Agreement applicants sign <span class="small muted">(staff policies; leave blank for a simple "this information is correct")</span>' : 'Agreement parents sign <span class="small muted">(camp policies, payment terms, release; leave blank for a simple "this information is correct")</span>') + '<textarea id="r_agree" rows="8" maxlength="20000">' + esc(W.agreement || '') + '</textarea></label></div>' +
         '<div class="row savebar"><button class="primary">Save</button>' + (S.demo ? '' : '<a class="btn" href="' + esc(regLink(kind)) + '" target="_blank" rel="noopener">Preview the ' + (staff ? 'application' : 'parents\'') + ' page</a>') + '</div></form>';
@@ -1680,6 +1687,8 @@
       $main.querySelectorAll('[data-qdel]').forEach(function (b) { b.onclick = function () { read(); var id = b.closest('li').dataset.qid; W.form.custom = W.form.custom.filter(function (q) { return q.id !== id; }); draw(); }; });
       if (!staff) document.getElementById('addplan').onclick = function () { read(); W.payment.plans.push({ id: RF.newId(), name: '' }); draw(); var ins = $main.querySelectorAll('[data-p="name"]'); ins[ins.length - 1].focus(); };
       $main.querySelectorAll('[data-pdel]').forEach(function (b) { b.onclick = function () { read(); var id = b.closest('.plan').dataset.pid; W.payment.plans = W.payment.plans.filter(function (p) { return p.id !== id; }); draw(); }; });
+      document.getElementById('addconsent').onclick = function () { read(); C.push({ id: 'c_' + RF.newId(), title: '', text: '', enabled: true }); draw(); var t = $main.querySelectorAll('[data-c="title"]'); t[t.length - 1].focus(); };
+      $main.querySelectorAll('[data-cdel]').forEach(function (b) { b.onclick = function () { if (!confirm('Remove this consent from the form?')) return; read(); var id = b.closest('[data-cid]').dataset.cid; C = C.filter(function (c) { return c.id !== id; }); draw(); }; });
       document.getElementById('regf').onsubmit = function (e) { e.preventDefault(); save(); };
     }
     // Copy what's on screen into W (in screen order, so dragged questions keep their new places).
@@ -1690,6 +1699,7 @@
       if (staff) { W.positions = v('r_pos').split('\n').map(function (x) { return x.trim(); }).filter(Boolean); W.tax_form = v('r_tax') || 'none'; W.tax_when = v('r_taxwhen') || 'apply'; } W.intro = v('r_intro'); W.agreement = v('r_agree');
       var boxes = [].slice.call($main.querySelectorAll('[data-sess]')), sess = boxes.filter(function (b) { return b.checked; }).map(function (b) { return b.dataset.sess; });
       W.sessions = boxes.length && sess.length < boxes.length ? sess : null; W._sessCount = sess.length; W._sessBoxes = boxes.length;
+      C = [].map.call($main.querySelectorAll('[data-cid]'), function (el) { var g = function (k) { return el.querySelector('[data-c="' + k + '"]'); }; return { id: el.dataset.cid, title: g('title').value.trim(), text: g('text').value.trim(), enabled: g('enabled').checked }; });
       var bi = {};
       RF.builtin(kind).forEach(function (b) {
         var o = {}, lab = $main.querySelector('[data-blabel="' + b.key + '"]'), mode = $main.querySelector('[data-bmode="' + b.key + '"]'), opts = $main.querySelector('[data-bopts="' + b.key + '"]');
@@ -1718,8 +1728,13 @@
       if (bad) return toast(bad.label ? 'Add the choices for "' + bad.label + '".' : 'One of your questions has no wording. Fill it in or remove it.');
       var badPlan = W.payment.plans.find(function (p) { return !p.name || (p.link && !/^https:\/\/\S+$/.test(p.link)); });
       if (badPlan) return toast(badPlan.name ? 'The link for "' + badPlan.name + '" must start with https://' : 'Give each payment plan a name, or remove it.');
+      var badC = C.find(function (c) { return !c.title || !c.text; });
+      if (badC) return toast('Each consent needs a title and wording. Fill it in or remove it.');
       var out = JSON.parse(JSON.stringify(W)); delete out._sessCount; delete out._sessBoxes;
-      DB.rpc('set_registration', { p_camp: S.camp.id, p_kind: kind, p_settings: out }).then(must).then(function (saved) {
+      DB.rpc('set_registration_consents', { p_camp: S.camp.id, p_kind: kind, p_consents: C }).then(must).then(function (cs) {
+        S.camp.settings = S.camp.settings || {}; S.camp.settings.registration_consents = Object.assign({}, S.camp.settings.registration_consents); S.camp.settings.registration_consents[kind] = cs;
+        return DB.rpc('set_registration', { p_camp: S.camp.id, p_kind: kind, p_settings: out });
+      }).then(must).then(function (saved) {
         if (!staff) return saved;
         return DB.rpc('set_tax_setting', { p_camp: S.camp.id, p_form: W.tax_form, p_when: W.tax_when }).then(must).then(function () { saved.tax_form = W.tax_form; saved.tax_when = W.tax_when; return saved; });
       }).then(function (saved) {

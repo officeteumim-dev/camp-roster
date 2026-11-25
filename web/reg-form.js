@@ -105,6 +105,28 @@
     return bad ? limitsText(dv) : '';
   }
 
-  root.RegForm = { GRADES: GRADES, STAFF_GRADES: STAFF_GRADES, POSITIONS: POSITIONS, BUILTIN: BUILTIN, STAFF_BUILTIN: STAFF_BUILTIN, TYPES: TYPES, SECTIONS: SECTIONS, STAFF_SECTIONS: STAFF_SECTIONS,
+  // The standard consents (a camp can edit the wording, turn one off, or add its own). Starting wording only:
+  // each camp should have its own attorney review it.
+  function defaultConsents(kind, camp) {
+    camp = camp || 'the camp';
+    if (kind === 'staff') return [{ id: 'background_check', title: 'Consent to pre-employment background check', enabled: true, text:
+      'I understand that, as part of considering my application and as required by law for staff of children\'s camps, ' + camp + ' will check my background before I begin work and each year that I return.\n\n' +
+      'I authorize ' + camp + ' and those acting for it to:\n' +
+      '• search the New York State Sex Offender Registry and the U.S. Department of Justice National Sex Offender Public Website using my name and date of birth;\n' +
+      '• contact the references, schools, camps and employers I have listed, and I authorize them to share information about my character, conduct and work with children;\n' +
+      '• make other background inquiries permitted by law for a position working with children.\n\n' +
+      'I certify that the information in my application is true and complete, and that I have never been convicted of, or required to register for, a sex offense or an offense involving a child. I understand that false or missing information, or the results of these checks, may lead to my application being declined or my employment ending.\n\n' +
+      'This consent stays in effect for as long as I am an applicant or staff member of ' + camp + '.' }];
+    return [{ id: 'assumption_of_risk', title: 'Assumption of risk and consent to participate', enabled: true, text:
+      'I am the parent or legal guardian of the camper(s) named in this application, and I give permission for them to attend ' + camp + ' and take part in its program.\n\n' +
+      'I understand that camp activities include sports and leagues, swimming and waterfront activities, hiking, trips and travel by vehicle, outdoor and overnight activities, and living in a group setting, and that these carry risks that cannot be removed entirely, including illness, minor and serious injury, and loss of or damage to property. I have considered these risks and I accept them on behalf of myself and my camper(s).\n\n' +
+      'I agree that my camper(s) will follow the camp\'s rules and the directions of its staff, and I understand that a camper whose behavior endangers themselves or others may be sent home.\n\n' +
+      'To the fullest extent the law allows, I release ' + camp + ', its directors, staff and volunteers from claims for injury, illness or loss arising from the ordinary risks of taking part in camp. This does not release claims that the law does not allow to be released.\n\n' +
+      'I confirm that my camper(s) are able to take part in the camp program, and that I have told the camp about any medical condition, allergy or limitation that staff should know about.' }];
+  }
+  // The consents a form shows: the camp's own list if it has one, otherwise the standard ones.
+  function consents(saved, kind, camp) { return (Array.isArray(saved) ? saved : defaultConsents(kind, camp)).filter(function (c) { return c && c.enabled !== false && c.title && c.text; }); }
+
+  root.RegForm = { defaultConsents: defaultConsents, consents: consents, GRADES: GRADES, STAFF_GRADES: STAFF_GRADES, POSITIONS: POSITIONS, BUILTIN: BUILTIN, STAFF_BUILTIN: STAFF_BUILTIN, TYPES: TYPES, SECTIONS: SECTIONS, STAFF_SECTIONS: STAFF_SECTIONS,
     builtin: builtin, sections: sections, field: field, custom: custom, newId: newId, detailKey: detailKey, divisionFits: divisionFits, limitsText: limitsText, ageOn: ageOn };
 })(typeof window !== 'undefined' ? window : globalThis);

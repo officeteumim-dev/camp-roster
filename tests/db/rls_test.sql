@@ -803,4 +803,24 @@ do $$ begin
 end $$;
 rollback;
 
+
+-- ---------- Consents on the application forms ----------
+begin;
+do $$ begin perform pg_temp.as_user('coun@x.org'); end $$;
+do $$ begin perform set_registration_consents('00000000-0000-0000-0000-0000000000c1', 'staff', '[]'); raise exception 'counselor changed consents'; exception when insufficient_privilege then null; end $$;
+reset role;
+set local role anon;
+do $$ begin assert registration_consents('camp-one', 'staff') is null, 'standard consents until changed'; end $$;
+reset role;
+do $$ begin perform pg_temp.as_user('office@x.org'); end $$;
+select set_registration_consents('00000000-0000-0000-0000-0000000000c1', 'staff', '[{"id":"background_check","title":" Background check ","text":"I agree.","enabled":true},{"id":"BAD ID","title":"x","text":"y"},{"id":"empty_one","title":"x","text":" "}]');
+select set_registration('00000000-0000-0000-0000-0000000000c1', 'staff', '{"enabled":true}');
+reset role;
+set local role anon;
+do $$ begin
+  assert registration_consents('camp-one', 'staff') = '[{"id":"background_check","title":"Background check","text":"I agree.","enabled":true}]', 'saved, tidied, and kept when other settings are saved';
+  assert registration_consents('camp-one', 'camper') is null;
+end $$;
+rollback;
+
 \echo 'ALL DATABASE TESTS PASSED'
